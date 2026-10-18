@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {ready:false, asking:false, uploading:false, docRequest:0};
+const state = {ready:false, asking:false, uploading:false, docRequest:0, docCount:0};
 const make = (tag, className, text) => { const el=document.createElement(tag); if(className) el.className=className; if(text!==undefined) el.textContent=text; return el; };
 async function api(url, options={}) {
   const response=await fetch(url, options);
@@ -9,6 +9,13 @@ async function api(url, options={}) {
   return data;
 }
 function updateSend() { $('send').disabled=!state.ready || state.asking || state.uploading || !$('question').value.trim(); }
+function updateWelcome() {
+  const hasDocs=state.docCount>0;
+  $('welcome-description').replaceChildren(
+    document.createTextNode(hasDocs ? 'Ask in your own words.' : 'Add your documents, then ask in your own words.'),
+    make('br'),document.createTextNode('We’ll help you find the answer and where it came from.'));
+  $('welcome-hint').textContent=hasDocs ? 'Your library is ready. Ask a question to get started.' : 'Start with a few documents in your library.';
+}
 async function refreshStatus() {
   try {
     const data=await api('/api/status');
@@ -17,6 +24,7 @@ async function refreshStatus() {
     $('model-status').className='model-status '+(data.model==='ready'?'ready':data.model==='error'?'error':'');
     $('model-status').replaceChildren(make('i'), document.createTextNode(label));
     $('doc-count').textContent=Number.isFinite(data.docs)?String(data.docs):'—';
+    if(Number.isFinite(data.docs)){state.docCount=data.docs;updateWelcome();}
     $('compose-note').textContent=data.model==='error'?'The local model needs attention. Your documents are still here.':data.model==='loading'?'Getting the local model ready. You can browse your documents while you wait.':'Answers grounded in your library. Always check the source.';
   } catch {
     state.ready=false; $('model-status').className='model-status error';

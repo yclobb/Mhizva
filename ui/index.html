@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>mdtree · Your documents, connected</title>
+  <title>Mhizva · Your documents, connected</title>
   <link rel="stylesheet" href="/app.css">
   <script src="/app.js" defer></script>
 </head>
@@ -24,7 +24,7 @@
   <main class="workspace">
     <header class="topbar"><span class="workspace-name">A little clarity, from your own documents.</span><span id="model-status" class="model-status" role="status"><i></i> Connecting…</span></header>
     <section id="conversation" class="conversation" aria-label="Conversation" aria-busy="false">
-      <div id="welcome" class="welcome"><div class="welcome-mark" aria-hidden="true">✳</div><p class="eyebrow">YOUR KNOWLEDGE, CLOSE AT HAND</p><h1>What would you like<br>to find out?</h1><p>Add your documents, then ask in your own words.<br>We’ll help you find the answer and where it came from.</p><div class="welcome-note"><span aria-hidden="true">↖</span> Start with a few documents in your library.</div></div>
+      <div id="welcome" class="welcome"><div class="welcome-mark" aria-hidden="true">✳</div><p class="eyebrow">YOUR KNOWLEDGE, CLOSE AT HAND</p><h1>What would you like<br>to find out?</h1><p id="welcome-description">Add your documents, then ask in your own words.<br>We’ll help you find the answer and where it came from.</p><div class="welcome-note"><span aria-hidden="true">↖</span> <span id="welcome-hint">Start with a few documents in your library.</span></div></div>
       <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
     </section>
     <div class="compose-area"><form id="ask-form" class="composer"><label for="question" class="visually-hidden">Ask about your documents</label><textarea id="question" placeholder="Ask about your documents…" rows="1" maxlength="12000"></textarea><button id="send" type="submit" aria-label="Send question" disabled>↑</button></form><p class="compose-note" id="compose-note">Answers grounded in your library. Always check the source.</p></div>
