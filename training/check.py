@@ -19,10 +19,11 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from engine.intent import INTENTS, PERIODS, STATUSES  # noqa: E402
+from engine.intent import DOC_TYPES, INTENTS, PERIODS, STATUSES  # noqa: E402
 
 DIRECTIONS = {"in", "out", "net", "none"}
-FILTER_KEYS = {"period", "date_field", "status", "days_overdue", "amount", "category", "party", "ref", "currency"}
+FILTER_KEYS = {"period", "date_field", "status", "days_overdue", "amount", "category", "party", "ref", "currency",
+               "doc_type"}
 PERIOD_RE = re.compile(r"(" + "|".join(p for p in PERIODS if p) + r"|next_week|\d{4}-q[1-4]|\d{4}-\d{2}|this_year-q[1-4]"
                        r"|fy\d{2,4}|bas-?q[1-4](\s*fy\d{4})?)", re.I)
 MONEY_INTENTS = {"total", "count", "list", "rank", "compare", "chart", "trend"}
@@ -65,6 +66,8 @@ def problems(o):
             for p in (v if isinstance(v, list) else [v]):
                 if not PERIOD_RE.fullmatch(str(p)):
                     bad.append(f"unknown period {p}")
+        elif k == "doc_type" and v not in DOC_TYPES:
+            bad.append(f"unknown doc_type {v}")
         elif k == "date_field" and v not in ("issued", "due", "paid"):
             bad.append(f"unknown date_field {v}")
     if f.get("agg", "sum") not in ("sum", "avg", "min", "max"):

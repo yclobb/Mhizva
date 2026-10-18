@@ -43,7 +43,8 @@ def parse_amount(m):
 
 def find_amounts(s):
     """[(value, currency, matched text)] for $ (AUD) and ¥/元/RMB (CNY) amounts in a sentence."""
-    out = [(parse_amount(m), "AUD", m.group(0)) for m in AMOUNT.finditer(s)]
+    out = [(-parse_amount(m) if s[max(0, m.start() - 1):m.start()] in ("-", "−") else parse_amount(m), "AUD",
+            m.group(0)) for m in AMOUNT.finditer(s)]
     for m in AMOUNT_CN.finditer(s):
         num, unit = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
         v = float(num.replace(",", "")) * (10_000 if unit == "万" else 1_000 if unit == "千" else 1)
@@ -85,7 +86,7 @@ def label_of(sentence, amount_text):
 
 
 # Document type: the first type word in the title or opening line decides; the model only when none appears.
-KIND_WORDS = [("quote", r"\bquot(e|ation)\b|报价"), ("invoice", r"\binvoice\b|发票"), ("bill", r"\bbill\b|账单"),
+KIND_WORDS = [("credit_note", r"\bcredit note\b|\bCN-\d|红字发票"), ("quote", r"\bquot(e|ation)\b|\bQUO-\d|报价"), ("invoice", r"\binvoice\b|发票"), ("bill", r"\bbill\b|账单"),
               ("receipt", r"\breceipt\b|收据"), ("contract", r"\bcontract\b|\bagreement\b|合同|协议"),
               ("insurance", r"\binsurance\b|保险"), ("policy", r"\bpolicy\b|制度|政策"), ("report", r"\breport\b|报告")]
 KIND_FOLDER = {"contract": "Contracts", "quote": "Quotes", "invoice": "Invoices", "bill": "Bills",
@@ -93,7 +94,8 @@ KIND_FOLDER = {"contract": "Contracts", "quote": "Quotes", "invoice": "Invoices"
                "other": "Other"}
 # Which way the money goes: "in" = the business is owed it (its invoices and quotes to customers),
 # "out" = the business pays it (bills, receipts, insurance). Never mixed in one total.
-DIRECTION = {"quote": "in", "invoice": "in", "bill": "out", "receipt": "out", "insurance": "out"}
+DIRECTION = {"quote": "in", "invoice": "in", "credit_note": "in", "bill": "out", "receipt": "out", "insurance": "out"}
+KIND_FOLDER.setdefault("credit_note", "Credit notes")
 
 
 def kind_by_words(text):
@@ -132,6 +134,28 @@ def classify(llm, title, text):
     return {"party": party, "kind": kind, "direction": direction}
 
 
+STAMP_PAID = re.compile(r"\*\*Status:\*\*\s*PAID\b|\bstatus:\s*paid\b|已付款|已支付", re.I)
+PAID_TO_DATE = re.compile(r"Paid to date:\**\s*\$?([\d,]+(?:\.\d\d)?).*?Balance:\**\s*\$?([\d,]+(?:\.\d\d)?)", re.I | re.S)
+QUOTE_STATUS = re.compile(r"\*\*Status:\*\*\s*(ACCEPTED|PENDING|DECLINED)", re.I)
+
+
+def doc_status(text, kind):
+    """Payment status read from the document itself (its PAID stamp or part-payment line), so totals of what is
+    owed don't depend on anything outside the files. {} when the document says nothing (treated as unpaid)."""
+    q = QUOTE_STATUS.search(text)
+    if q:
+        return {"status": q.group(1).lower()}
+    m = PAID_TO_DATE.search(text)
+    if m:
+        return {"status": "partly_paid", "paid_to_date": float(m.group(1).replace(",", "")),
+                "balance": float(m.group(2).replace(",", ""))}
+    if STAMP_PAID.search(text):
+        return {"status": "paid"}
+    if kind in ("invoice", "bill", "receipt"):
+        return {"status": "unpaid"}
+    return {}
+
+
 def extract(llm, path, title, text, cls=None):
     cls = cls or classify(llm, title, text)
     party, kind = cls["party"], cls["kind"]
@@ -155,8 +179,10 @@ def extract(llm, path, title, text, cls=None):
     # are kept (start/end dates matter) but select() hides them when their document has amount rows.
     doc_dates = [r["date"] for r in rows if r["date"]]
     ref = REF.search(text)
+    st = doc_status(text, kind)
     for r in rows:
         r["ref"] = ref.group(0) if ref else None
+        r.update(st)
         r["direction"] = cls.get("direction")
         if r["amount"] is not None:
             r["date_from"] = "sentence" if r["date"] else ("document" if doc_dates else None)

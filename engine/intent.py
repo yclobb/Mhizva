@@ -51,7 +51,9 @@ EXAMPLES = [
 
 PERIODS = ["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_quarter",
            "last_quarter", "this_year", "last_year", "ytd", ""]
-STATUSES = ["unpaid", "paid", "overdue", "partly_paid", "written_off", ""]
+STATUSES = ["unpaid", "paid", "overdue", "partly_paid", "written_off", "outstanding", "pending", "accepted",
+            "declined", ""]
+DOC_TYPES = ["invoice", "bill", "quote", "credit_note", "contract", "policy", "payroll", "bank", ""]
 # The form (the creator's schema, 2026-10-18): what is asked, which way the money goes, how it is grouped,
 # and filters in one consistent vocabulary. period may also be "2026-Q2" or "2026-04".
 SCHEMA = {
@@ -67,6 +69,7 @@ SCHEMA = {
                                      {"type": "array", "items": {"type": "string", "maxLength": 12}, "maxItems": 2}]},
                 "ref": {"type": "string", "maxLength": 24},
                 "currency": {"type": "string", "maxLength": 3},
+                "doc_type": {"type": "string", "enum": DOC_TYPES},
                 "date_field": {"type": "string", "enum": ["issued", "due", "paid", ""]},
                 "status": {"type": "string", "enum": STATUSES},
                 "days_overdue": {"type": "string", "maxLength": 8},

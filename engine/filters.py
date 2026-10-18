@@ -105,14 +105,30 @@ def record_date(r, field):
     return r.get("date")
 
 
+def status_of(r):
+    """The record's own status if the document stated it (PAID stamp, part payment, quote status)."""
+    return r.get("status")
+
+
 def status_text(r):
     st = [v for k, v in r.get("fields", {}).items() if re.search(r"status|state|stage|paid", k, re.I)]
     return " ".join(st) if st else r.get("text", "")
 
 
 def is_paid(r):
+    if status_of(r):
+        return status_of(r) == "paid"
     s = status_text(r)
     return bool(PAID.search(s)) and not NOT_PAID.search(s)
+
+
+def outstanding_amount(r):
+    """A partly paid record counts at its remaining balance; only its total line carries that balance."""
+    if status_of(r) == "partly_paid" and r.get("amount") is not None:
+        if not re.search(r"total", r.get("label", ""), re.I):
+            return None
+        return {**r, "amount": r["balance"], "label": "Balance"}
+    return r
 
 
 def compare_number(value, rule):
@@ -139,10 +155,21 @@ def apply(rows, filters, today=None):
         field = f.get("date_field") or "issued"
         out = [r for r in out if (d := record_date(r, field)) and win[0] <= d <= win[1]]
     status = f.get("status")
-    if status == "paid":
+    if f.get("doc_type"):
+        want = f["doc_type"].lower()
+        out = [r for r in out if (r.get("kind") or "").lower() == want
+               or want in ("bank", "payroll") and want in (r.get("title") or "").lower()]
+    if status in ("pending", "accepted", "declined"):
+        out = [r for r in out if status_of(r) == status]
+    elif status == "outstanding":  # unpaid + partly paid (balance only) + overdue
+        out = [outstanding_amount(r) for r in out if not is_paid(r) and status_of(r) not in ("pending", "accepted",
+                                                                                             "declined")]
+        out = [r for r in out if r is not None]
+    elif status == "paid":
         out = [r for r in out if is_paid(r)]
     elif status == "unpaid":
-        out = [r for r in out if not is_paid(r)]
+        out = [outstanding_amount(r) for r in out if not is_paid(r)]
+        out = [r for r in out if r is not None]
     elif status == "overdue":
         out = [r for r in out if not is_paid(r) and (re.search(r"overdue|late", status_text(r), re.I)
                or ((d := record_date(r, "due")) and d < today.isoformat()))]
