@@ -74,13 +74,19 @@ IDENTITY = re.compile(r"\b(what|which)\s+(ai|model|llm)\b|\bwho\s+(made|built|cr
                       r"\bare\s+(you|u)\s+(chatgpt|gpt|claude|gemini|an? ai|a bot|human)\b|\bwhat are (you|u)\b|"
                       r"\bwho are (you|u)\b|\b(are|r)\s+(you|u)\s+(an?\s+)?(ai|bot|robot|human|real|person)\b|"
                       r"\bhow (smart|clever|good|intelligent|capable)\s+(are|r)\s+(you|u)\b|\byour model\b|"
-                      r"\bwhat can (you|u) do\b|什么模型|哪个模型|谁(做|造|开发|训练)了你|你是谁|你是什么|你是AI|你多聪明", re.I)
+                      r"\bwhat can (you|u) do\b|\b(your|ur) (limitations?|limits|weakness\w*|strengths?)\b|\b(you|u)\s+(\w+\s+)?(outperform|compare|beat)\w*|什么模型|哪个模型|谁(做|造|开发|训练)了你|你是谁|你是什么|你是AI|你多聪明", re.I)
 
 
 def identity(question, llm):
     """Small models invent who made them ("created by Anthropic"). Identity questions get a true, fixed answer."""
     models = [m.name for m in ((llm.small, llm.large) if hasattr(llm, "small") else (llm,)) if hasattr(m, "name")]
     names = " and ".join(models) if models else "a built-in keyword engine"
+    if COMPARE.search(question) and not has_cjk(question):
+        return (f"Honestly: I'm a small model ({names}) running on this computer, so big cloud models like Claude or "
+                "ChatGPT are far better at reasoning, writing, coding and general knowledge, and I can get facts "
+                "wrong. Where I do better: your documents never leave this computer, I work offline, there's no "
+                "per-question cost, and totals, tables, charts and trends across your files are calculated exactly "
+                "by code with every number linked to its source, instead of being guessed.")
     smart = re.search(r"smart|clever|good|intelligent|capable|what can|聪明", question, re.I)
     if has_cjk(question):
         return (f"我是 Mhizva，一个在你电脑上本地运行的 AI，现在使用的模型是 {names}（阿里巴巴的开源 Qwen 模型）。"
@@ -93,11 +99,19 @@ def identity(question, llm):
                if smart else "Your documents never leave this computer."))
 
 
+WH = re.compile(r"\b(what|when|where|who|which|why|how)\b|什么|怎么|为什么|哪|谁|多少", re.I)
+COMPARE = re.compile(r"\b(limitation|limits|weakness|compared?|vs\.?|versus|outperform|better than|worse than|"
+                     r"chatgpt|claude|gpt|gemini|opus)\w*", re.I)
+
+
 def chit_chat(question):
     """Greetings, thanks and remarks about Mhizva ('i created you') are not questions: answer with a fixed
     friendly reply instead of handing a small model nothing to do (it tends to recite its instructions).
     Keyword searches without a question mark ('Smith contract price') still search."""
-    return bool(CHAT.search(question)) and not ASKING.search(question.strip())
+    q = question.strip()
+    # "ok. what are your limitations" starts like chit-chat but asks something: never treat a message
+    # with a question word anywhere, or a long message, as chit-chat
+    return (bool(CHAT.search(q)) and not ASKING.search(q) and not WH.search(q) and len(q.split()) <= 8)
 
 
 HISTORY_TURNS, HISTORY_CHARS = 6, 1500  # fits the 4k context with room for the reply

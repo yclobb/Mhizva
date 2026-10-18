@@ -58,7 +58,9 @@ def main():
         hist = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello!"}]
         seq = [("r u an ai", "qwen2.5-1.5b"), ("what model are you", "qwen2.5-0.5b and qwen2.5-1.5b"),
                ("i am ur creator", "Nice to meet you"), ("no i literally made u", "Nice to meet you"),
-               ("how smart are you", "small model"), ("for your model, what are you?", "qwen2.5-1.5b")]
+               ("how smart are you", "small model"), ("for your model, what are you?", "qwen2.5-1.5b"),
+               ("ok. what are your limitations compared to higher quality models like claude opus 5.5 and where you u "
+                "outpeform them", "never leave this computer")]
         for q, want in seq:
             r = s.ask(q, mode="general", history=hist)
             ok = want in r["answer"] and "Anthropic" not in r["answer"] and r["kind"] == "chat"

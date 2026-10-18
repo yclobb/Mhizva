@@ -186,10 +186,20 @@ function renderMarkdown(markdown) {
   flush();if(code)fragment.append(code);return fragment;
 }
 function highlightPassage(root,quote) {
-  const normalize=text=>text.replace(/\s+/g,' ').trim().toLocaleLowerCase();const needle=normalize(quote);if(!needle)return false;
-  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];let combined='';
-  while(walker.nextNode()){const node=walker.currentNode;nodes.push({node,start:combined.length});combined+=node.textContent+' ';}
-  // Keep a source offset for every normalized character to match across formatting nodes.
+  const normalize=text=>text.replace(/\s+/g,' ').trim().toLocaleLowerCase();
+  function textMap(container) {
+    const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT),nodes=[];let raw='',lastBlock=null;
+    while(walker.nextNode()) {
+      const node=walker.currentNode;
+      const block=node.parentElement?.closest('p,li,h1,h2,h3,h4,h5,h6,pre,blockquote,td,th') || container;
+      if(lastBlock&&block!==lastBlock)raw+=' ';
+      nodes.push({node,start:raw.length});raw+=node.textContent;lastBlock=block;
+    }
+    return {raw,nodes};
+  }
+  const quoteView=document.createElement('div');quoteView.append(renderMarkdown(String(quote)));
+  const needle=normalize(textMap(quoteView).raw);if(!needle)return false;
+  const {raw:combined,nodes}=textMap(root);
   let normalized='';const offsets=[];let wasSpace=true;
   for(let i=0;i<combined.length;i++){if(/\s/.test(combined[i])){if(!wasSpace){normalized+=' ';offsets.push(i);}wasSpace=true;}else{const lower=combined[i].toLocaleLowerCase();normalized+=lower;for(let j=0;j<lower.length;j++)offsets.push(i);wasSpace=false;}}
   const at=normalized.indexOf(needle);if(at<0)return false;
