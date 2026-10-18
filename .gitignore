@@ -8,3 +8,4 @@ __pycache__/
 *.pyc
 # downloaded models
 models/
+ui/_review.html
