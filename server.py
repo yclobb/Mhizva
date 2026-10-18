@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from engine import facts  # noqa: E402
 from engine.ingest import add_file  # noqa: E402
 from engine.llm import BitNetLLM, FakeLLM  # noqa: E402
 from engine.search import Searcher  # noqa: E402
@@ -30,6 +31,7 @@ llm = FakeLLM() if FAKE else BitNetLLM()
 searcher = Searcher(lib, llm)
 work = threading.Lock()  # one upload or question at a time; the model is single-slot anyway
 busy = {"n": 0}
+answers = {}  # answer id -> response, for spreadsheet export
 
 
 def parse_multipart(content_type, body):
@@ -61,6 +63,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"model": llm.state, "docs": lib.count_docs(), "busy": busy["n"] > 0})
             if u.path == "/api/tree":
                 return self.send(200, lib.tree())
+            if u.path == "/api/export":
+                qs = parse_qs(u.query)
+                ans = answers.get(qs.get("id", [""])[0])
+                fmt = qs.get("format", ["xlsx"])[0]
+                if not ans or not ans.get("table") or fmt not in ("xlsx", "csv"):
+                    return self.send(404, {"error": "nothing to export"})
+                data = facts.to_xlsx(ans["table"]) if fmt == "xlsx" else facts.to_csv(ans["table"])
+                ctype = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if fmt == "xlsx"
+                         else "text/csv; charset=utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Disposition", f'attachment; filename="Mhizva.{fmt}"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             if u.path == "/api/doc":
                 path = parse_qs(u.query).get("path", [""])[0]
                 meta, md = lib.read_doc(path)
@@ -87,7 +104,11 @@ class Handler(BaseHTTPRequestHandler):
                     q = (json.loads(body or b"{}").get("question") or "").strip()
                     if not q:
                         return self.send(400, {"error": "empty question"})
-                    return self.send(200, searcher.ask(q))
+                    res = searcher.ask(q)
+                    answers[res["id"]] = res  # kept for /api/export
+                    while len(answers) > 200:
+                        answers.pop(next(iter(answers)))
+                    return self.send(200, res)
                 if u.path == "/api/upload":
                     filed, errors = [], []
                     for name, data in parse_multipart(self.headers.get("Content-Type", ""), body):

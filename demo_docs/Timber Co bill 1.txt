@@ -1,0 +1,4 @@
+Bill for timber supply.
+Supplier: Timber Co
+
+Total: $1,000. Invoice date: 15 January 2026.

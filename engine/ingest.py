@@ -9,6 +9,7 @@ import re
 import zipfile
 from collections import Counter
 
+from . import facts
 from .llm import chat, plain_words
 from .tree import Entry, safe_name
 
@@ -176,6 +177,24 @@ def place_sections(lib, llm, roll, folder, title, meta, summary, keywords, secti
         lib.refresh_up(home, roll)
 
 
+def doc_paths(lib, path):
+    if not lib.is_folder(path):
+        return [path]
+    out = []
+    for e in lib.entries(path):
+        out += doc_paths(lib, f"{path}/{e.name}")
+    return out
+
+
+def store_facts(lib, llm, path):
+    """Amounts and dates of the new document (every section, for a long one) into the facts table."""
+    rows = []
+    for p in doc_paths(lib, path):
+        meta, text = lib.read_doc(p)
+        rows += facts.extract(llm, p, meta.get("title") or p, text)
+    facts.FactStore(lib.root).replace_doc(path, rows)
+
+
 def add_file(lib, llm, filename, data):
     title, md = to_markdown(filename, data)
     if not md.strip():
@@ -202,4 +221,5 @@ def add_file(lib, llm, filename, data):
         lib.refresh_up(sub, roll)
         path = sub
     lib.refresh_up(folder, roll)
+    store_facts(lib, llm, path)
     return {"name": os.path.basename(filename), "path": path, "summary": summary}

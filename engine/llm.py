@@ -107,10 +107,14 @@ about into than then there here not no yes can could would should will shall may
 
 
 def stem(w):
-    for suf in ("ing", "ed", "es", "s"):
-        if len(w) > len(suf) + 2 and w.endswith(suf):
-            return w[:-len(suf)]
-    return w
+    """Crude but consistent: invoice/invoices, renew/renews/renewed, owe/owed all meet."""
+    if len(w) > 4 and w.endswith("ies"):
+        return w[:-3] + "y"
+    for suf in ("ing", "ed", "s"):
+        if len(w) > len(suf) + 2 and w.endswith(suf) and not w.endswith("ss"):
+            w = w[:-len(suf)]
+            break
+    return w[:-1] if len(w) > 3 and w.endswith("e") else w
 
 
 def plain_words(text):
@@ -149,6 +153,9 @@ class FakeLLM:
 
     def write(self, prompt, n=80, stop=None):
         body = prompt.split("User:")[-1].split("<|eot_id|>")[0]
+        if "main other party" in prompt.lower():
+            m = re.search(r"(?:Supplier|Customer|Insurer):\s*([^\n.]+)", body)
+            return m.group(1).strip() if m else "none"
         if "folder name" in prompt.lower():
             ws = plain_words(body.split("Document:")[-1])
             return " ".join(w.capitalize() for w in ws[:2]) or "General"

@@ -7,7 +7,9 @@ and folder visits have their own ceilings, so a deep tree cannot run away.
 """
 import re
 import time
+import uuid
 
+from . import facts
 from .ingest import LABELS, menu
 from .llm import chat, words
 
@@ -164,6 +166,22 @@ class Searcher:
         key = " ".join(question.lower().split())  # whole question: "not" must change the key
         if key in self.cache:
             return {**self.cache[key], "seconds": round(time.time() - t0, 2), "cached": True}
+        kind = facts.question_kind(question)
+        if kind != "lookup":
+            res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind)
+            if res:  # cross-document question answered from the facts table; otherwise fall through
+                text, table, chart, cover = res
+                seen, quotes = set(), []
+                for src in table["sources"]:
+                    s = src[0]
+                    if s["path"] not in seen and len(quotes) < 5:
+                        seen.add(s["path"])
+                        quotes.append({"text": s["quote"], "path": s["path"],
+                                       "title": self.lib.read_doc(s["path"])[0].get("title", s["path"])})
+                out = {"id": uuid.uuid4().hex[:12], "kind": kind, "answer": text, "found": True,
+                       "quotes": quotes, "table": table, "chart": chart, "coverage": cover, "trace": []}
+                self.cache[key] = out
+                return {**out, "seconds": round(time.time() - t0, 2)}
         q = set(words(question))
         trace, docs = [], []
         self.calls_left, self.nodes_left = MAX_CALLS, MAX_NODES
@@ -179,9 +197,9 @@ class Searcher:
                 n=60, stop=["<|eot_id|>", "\n"])
             if text and "NOT_FOUND" not in text:
                 answer, found = text, True
-        out = {"answer": answer, "found": found,
+        out = {"id": uuid.uuid4().hex[:12], "kind": "lookup", "answer": answer, "found": found,
                "quotes": [{"text": c[1], "path": c[2], "title": c[3]} for c in picked] if found else [],
-               "trace": trace}
+               "table": None, "chart": None, "coverage": None, "trace": trace}
         if found:
             self.cache[key] = out
         return {**out, "seconds": round(time.time() - t0, 2)}
