@@ -75,6 +75,10 @@ def problems(o):
     if f.get("money_field", "total") not in ("total", "subtotal", "tax"):
         bad.append(f"unknown money_field {f.get('money_field')}")
     it, d = f.get("intent"), f.get("direction")
+    dt_ = f.get("filters", {}).get("doc_type")
+    want = {"bill": "out", "invoice": "in", "quote": "in", "credit_note": "in"}.get(dt_)
+    if want and d not in (want, "net"):  # a bill is money out, an invoice money in (caught the supplier inversion)
+        bad.append(f"doc_type {dt_} implies direction {want}, got {d}")
     if it in ("chat", "about_me", "general", "advice") and d != "none":
         flag.append(f"{it} should have direction none")
     if it in MONEY_INTENTS - {"count"} and d == "none" and it not in ("trend",):

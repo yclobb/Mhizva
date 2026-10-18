@@ -27,9 +27,13 @@ TODAY = "2026-10-18"
 
 
 def split():
-    src = os.path.join(HERE, "B1-docs.jsonl")
+    """B1-docs.jsonl, then any B1-docs-fix*.jsonl on top (a re-sent file replaces the earlier version)."""
+    import glob
     n = 0
-    for line in open(src, encoding="utf-8"):
+    lines = []
+    for src in [os.path.join(HERE, "B1-docs.jsonl")] + sorted(glob.glob(os.path.join(HERE, "B1-docs-fix*.jsonl"))):
+        lines += open(src, encoding="utf-8").read().splitlines()
+    for line in lines:
         line = line.strip()
         if not line.startswith("{"):
             continue
