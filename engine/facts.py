@@ -496,6 +496,7 @@ def coverage(all_rows, used_rows, merged=0, excluded=None):
             "missing_dates": sum(1 for r in used_rows if not r["date"]),
             "dates_from_document": sum(1 for r in used_rows if r.get("date_from") == "document"),
             "duplicates_merged": merged,
+            "estimated_values": sum(1 for r in used_rows if r.get("value_kind") in ("range", "at_least", "approx")),
             "currency": sorted({cur(r) for r in used_rows if r["amount"] is not None}) or ["AUD"],
             "excluded_other_currency": excluded or {}}
 
@@ -573,7 +574,11 @@ def one_currency(picked):
     """Amounts in different currencies are never added together: keep the most common currency's rows
     (plus rows without amounts) and report what was left out."""
     from collections import Counter
-    c = Counter(cur(r) for r in picked if r["amount"] is not None)
+    c = Counter(cur(r) for r in picked if r["amount"] is not None and cur(r) != "")
+    if c and any(r["amount"] is not None and cur(r) == "" for r in picked):
+        # plain measures (Volume, Employee Count) are not a currency: when money is asked about, leave them out
+        kept = Rows(r for r in picked if r["amount"] is None or cur(r) != "")
+        kept.merged, picked = picked.merged, kept
     if len(c) <= 1:
         return picked, {}
     main = c.most_common(1)[0][0]
@@ -668,8 +673,19 @@ def answer_basic(picked, question, kind, zh=False):
         chart = chart_of(table, question, zh) if group_field(per_doc, question) or re.search(r"\bby\b|按", question) else None
         return (t["average" if avg else "total"].format(value=money(value, cur(per_doc[0])), docs=units(per_doc, zh)),
                 table, chart if chart and len(chart["points"]) > 1 else None)
-    # "how many": count records (one per document or spreadsheet row), not every amount in them
+    # "how many": count records (one per document or spreadsheet row), not every amount in them.
+    # "how many companies / unique customers": count distinct parties (the same company under several
+    # spellings is one, after cleaning).
     per = best_per_doc(picked, question) or picked
+    party_cols = {k for r in picked for k in r.get("fields", {}) if r.get("fields", {}).get(k) == r["party"]}
+    distinct = re.search(r"\b(unique|distinct|different|separate)\b|不同|多少家", question.lower()) or any(
+        set(words(question)) & set(words(c)) for c in party_cols) or re.search(
+        r"\bhow many (companies|customers|clients|suppliers|vendors|accounts|parties)\b", question.lower())
+    if distinct and any(r.get("row") for r in picked):
+        names = sorted({r["party"] for r in picked if r["party"]})
+        rows = [{**r, "label": "records"} for r in {r["party"]: r for r in per}.values()]
+        return (f"{len(names)} distinct: {', '.join(names[:12])}{' and more' if len(names) > 12 else ''}.",
+                table_of(rows, zh), None)
     return t["match"].format(docs=units(per, zh)), table_of(per, zh), None
 
 

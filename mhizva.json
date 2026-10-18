@@ -1,6 +1,6 @@
 {
   "app": "Mhizva",
-  "app_creator": "its developer (a private person; never state or guess their real name)",
-  "current_user": "the developer who created Mhizva (development setup); address them as the creator, never by a real name",
+  "app_creator": "the developer who is talking to you right now (keep their real name private; never state or guess it)",
+  "current_user": "your creator, the developer who built Mhizva; they made you, you did not make them",
   "country": "Australia"
 }
