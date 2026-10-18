@@ -1,0 +1,8 @@
+# third-party runtime + model (built locally with build_bitnet.ps1)
+BitNet/
+# user data
+library/
+# build/test leftovers
+*.log
+__pycache__/
+*.pyc
