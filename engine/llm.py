@@ -1,57 +1,86 @@
-"""Model access. BitNet runs inside llama-server (from bitnet.cpp); we talk to it over HTTP.
+"""Model access. Local models (Qwen GGUF files in models/) run inside llama-server from the official
+llama.cpp build in runtime/; we talk to it over HTTP.
 
 Two calls cover everything the engine needs:
   pick(prompt, labels)  -> probability per label, read from ONE next-token pass (no text generated)
   write(prompt, n)      -> a short generated text
+Prompts are built with chat(system, user) and formatted by each model's own chat template.
+TeamLLM pairs a small fast model (picks) with a larger one (writing, and picks the small one is unsure of).
 FakeLLM implements the same interface with keyword overlap so the engine can be tested without a model.
 """
 import json
+import math
 import os
 import re
 import subprocess
 import threading
 import time
 import urllib.request
+from dataclasses import dataclass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BITNET = os.path.join(ROOT, "BitNet")
-MODEL = os.path.join(BITNET, "models", "BitNet-b1.58-2B-4T", "ggml-model-i2_s.gguf")
-PORT = 8766
+MODELS = os.path.join(ROOT, "models")
 
-# BitNet b1.58 2B4T chat format
+# name -> (gguf path, chat template)
+CATALOGUE = {
+    "qwen2.5-0.5b": (os.path.join(MODELS, "qwen2.5-0.5b-instruct-q8_0.gguf"), "chatml"),
+    "qwen2.5-1.5b": (os.path.join(MODELS, "qwen2.5-1.5b-instruct-q4_k_m.gguf"), "chatml"),
+    "qwen3-4b": (os.path.join(MODELS, "Qwen3-4B-Q4_K_M.gguf"), "qwen3"),
+}
+
+TEMPLATES = {
+    "chatml": ("<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n",
+               "<|im_end|>"),
+    # Qwen3 thinks out loud unless the assistant turn starts with an empty think block
+    "qwen3": ("<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n"
+              "<think>\n\n</think>\n\n", "<|im_end|>"),
+}
+
+
+@dataclass(frozen=True)
+class Chat:
+    system: str
+    user: str
+
+    def __str__(self):  # readable form, used by FakeLLM and in logs
+        return f"System: {self.system}<|eot_id|>User: {self.user}<|eot_id|>Assistant: "
+
+
 def chat(system, user):
-    return f"System: {system}<|eot_id|>User: {user}<|eot_id|>Assistant: "
+    return Chat(system, user)
 
 
 def find_server_exe():
-    for sub in ("build/bin/Release", "build/bin", "build/Release/bin"):
-        p = os.path.join(BITNET, sub, "llama-server.exe")
-        if os.path.exists(p):
-            return p
-    return None
+    """Official llama.cpp build in runtime/ (picks the right CPU variant itself)."""
+    p = os.path.join(ROOT, "runtime", "llama-server.exe")
+    return p if os.path.exists(p) else None
 
 
-class BitNetLLM:
-    def __init__(self, threads=None, ctx=4096):
-        self.lock = threading.Lock()  # llama-server has one slot; keep calls in order
+class ServerLLM:
+    """One model in its own llama-server process."""
+
+    def __init__(self, name="qwen2.5-1.5b", port=8766, threads=None, ctx=4096):
+        self.name, self.port, self.ctx = name, port, ctx
+        self.path, template = CATALOGUE[name]
+        self.template, self.end = TEMPLATES[template]
+        self.lock = threading.Lock()  # one request at a time per server
         self.threads = threads or max(1, (os.cpu_count() or 4) // 2)
-        self.ctx = ctx
         self.proc = None
         self.state = "loading"
 
     def start(self):
         exe = find_server_exe()
-        if not exe:
+        if not exe or not os.path.exists(self.path):
             self.state = "error"
-            raise RuntimeError("llama-server.exe not found; build bitnet.cpp first")
+            raise RuntimeError(f"llama-server or model missing for {self.name}")
         self.proc = subprocess.Popen(
-            [exe, "-m", MODEL, "-c", str(self.ctx), "-t", str(self.threads),
-             "--port", str(PORT), "--host", "127.0.0.1"],
+            [exe, "-m", self.path, "-c", str(self.ctx), "-t", str(self.threads), "-np", "1",
+             "--port", str(self.port), "--host", "127.0.0.1"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         for _ in range(240):
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2) as r:
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=2) as r:
                     if r.status == 200 and b"ok" in r.read():
                         self.state = "ready"
                         return
@@ -61,14 +90,19 @@ class BitNetLLM:
                 break
             time.sleep(0.5)
         self.state = "error"
-        raise RuntimeError("llama-server did not become ready")
+        raise RuntimeError(f"llama-server for {self.name} did not become ready")
 
     def stop(self):
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
 
+    def format(self, prompt):
+        if isinstance(prompt, Chat):
+            return self.template.format(system=prompt.system, user=prompt.user)
+        return str(prompt)
+
     def _post(self, body):
-        req = urllib.request.Request(f"http://127.0.0.1:{PORT}/completion",
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/completion",
                                      data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
         with self.lock, urllib.request.urlopen(req, timeout=300) as r:
@@ -76,16 +110,15 @@ class BitNetLLM:
 
     def pick(self, prompt, labels):
         """Probability of each label as the next token, normalised over the labels (optimisation 1)."""
-        out = self._post({"prompt": prompt, "n_predict": 1, "n_probs": 40,
+        out = self._post({"prompt": self.format(prompt), "n_predict": 1, "n_probs": 40,
                           "temperature": 0, "cache_prompt": True})
         probs = {}
         for step in out.get("completion_probabilities", [])[:1]:
             cands = step.get("probs") or step.get("top_probs") or step.get("top_logprobs") or []
             for c in cands:
-                tok = (c.get("tok_str") or c.get("token") or "").strip()
+                tok = (c.get("tok_str") or c.get("token") or "").strip().rstrip(")")
                 p = c.get("prob")
                 if p is None and "logprob" in c:
-                    import math
                     p = math.exp(c["logprob"])
                 if tok in labels and p is not None:
                     probs[tok] = probs.get(tok, 0.0) + p
@@ -95,9 +128,47 @@ class BitNetLLM:
         return {l: probs.get(l, 0.0) / total for l in labels}
 
     def write(self, prompt, n=80, stop=None):
-        out = self._post({"prompt": prompt, "n_predict": n, "temperature": 0,
-                          "cache_prompt": True, "stop": stop or ["<|eot_id|>", "\n\n"]})
+        stop = [self.end if s == "<|eot_id|>" else s for s in (stop or ["<|eot_id|>", "\n\n"])]
+        out = self._post({"prompt": self.format(prompt), "n_predict": n, "temperature": 0,
+                          "cache_prompt": True, "stop": list(dict.fromkeys(stop + [self.end]))})
         return out.get("content", "").strip()
+
+
+class TeamLLM:
+    """Lucas's nested team: the small model makes the many quick picks; when its top two choices are
+    within ESCALATE of each other the large model decides instead; the large model does all writing."""
+    ESCALATE = 0.2
+
+    def __init__(self, small, large):
+        self.small, self.large = small, large
+        self.escalations = 0
+
+    @property
+    def state(self):
+        states = {self.small.state, self.large.state}
+        return "error" if "error" in states else "loading" if "loading" in states else "ready"
+
+    def start(self):
+        threads = [threading.Thread(target=m.start) for m in (self.small, self.large)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    def stop(self):
+        self.small.stop()
+        self.large.stop()
+
+    def pick(self, prompt, labels):
+        probs = self.small.pick(prompt, labels)
+        top = sorted(probs.values(), reverse=True)
+        if len(top) > 1 and top[0] - top[1] < self.ESCALATE:
+            self.escalations += 1
+            return self.large.pick(prompt, labels)
+        return probs
+
+    def write(self, prompt, n=80, stop=None):
+        return self.large.write(prompt, n, stop)
 
 
 WORD = re.compile(r"[a-z0-9$]+")
@@ -157,6 +228,7 @@ class FakeLLM:
         pass
 
     def pick(self, prompt, labels):
+        prompt = str(prompt)
         if "Question:" in prompt:
             q = set(words(prompt.split("Question:")[-1].split("\n")[0]))
         else:
@@ -171,6 +243,7 @@ class FakeLLM:
         return {l: s / total for l, s in scores.items()}
 
     def write(self, prompt, n=80, stop=None):
+        prompt = str(prompt)
         body = prompt.split("User:")[-1].split("<|eot_id|>")[0]
         if "main other party" in prompt.lower():
             m = re.search(r"(?:Supplier|Customer|Insurer):\s*([^\n.]+)", body)

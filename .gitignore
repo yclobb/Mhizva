@@ -1,4 +1,4 @@
-# third-party runtime + model (built locally with build_bitnet.ps1)
+# old BitNet checkout (removed 2026-10-18)
 BitNet/
 # user data
 library/
@@ -9,3 +9,4 @@ __pycache__/
 # downloaded models
 models/
 ui/_review.html
+runtime/

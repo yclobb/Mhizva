@@ -1,7 +1,9 @@
 """mdtree local server: serves the UI and the JSON API on http://127.0.0.1:8765.
 
-Run:  python -I server.py            (BitNet; starts llama-server itself)
-      python -I server.py --fake     (keyword stand-in model, for testing without BitNet)
+Run:  python -I server.py                                   (Qwen2.5 1.5B; starts llama-server itself)
+      python -I server.py --model qwen3-4b                  (another model from engine.llm.CATALOGUE)
+      python -I server.py --team qwen2.5-0.5b,qwen2.5-1.5b  (small model picks, large model writes)
+      python -I server.py --fake                            (keyword stand-in, no model)
 """
 import email.parser
 import email.policy
@@ -19,7 +21,7 @@ sys.path.insert(0, HERE)
 
 from engine import facts  # noqa: E402
 from engine.ingest import add_file  # noqa: E402
-from engine.llm import BitNetLLM, FakeLLM  # noqa: E402
+from engine.llm import FakeLLM, ServerLLM, TeamLLM  # noqa: E402
 from engine.search import Searcher  # noqa: E402
 from engine.tree import Library  # noqa: E402
 
@@ -27,7 +29,19 @@ PORT = 8765
 UI = os.path.join(HERE, "ui")
 FAKE = "--fake" in sys.argv
 lib = Library(os.environ.get("MDTREE_LIBRARY", os.path.join(HERE, "library")))
-llm = FakeLLM() if FAKE else BitNetLLM()
+def arg(name, default):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+
+# --model qwen2.5-1.5b (one model) or --team qwen2.5-0.5b,qwen2.5-1.5b (small picks, large writes)
+if FAKE:
+    llm, MODE = FakeLLM(), "stand-in"
+elif "--team" in sys.argv:
+    small, large = arg("--team", "qwen2.5-0.5b,qwen2.5-1.5b").split(",")
+    llm, MODE = TeamLLM(ServerLLM(small, 8766), ServerLLM(large, 8767)), f"team:{small}+{large}"
+else:
+    name = arg("--model", "qwen2.5-1.5b")
+    llm, MODE = ServerLLM(name, 8766), f"model:{name}"
 searcher = Searcher(lib, llm)
 work = threading.Lock()  # one upload or question at a time; the model is single-slot anyway
 busy = {"n": 0}
@@ -60,7 +74,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         try:
             if u.path == "/api/status":
-                return self.send(200, {"model": llm.state, "docs": lib.count_docs(), "busy": busy["n"] > 0})
+                return self.send(200, {"model": llm.state, "mode": MODE, "docs": lib.count_docs(),
+                                      "busy": busy["n"] > 0})
             if u.path == "/api/tree":
                 return self.send(200, lib.tree())
             if u.path == "/api/export":
@@ -126,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     threading.Thread(target=llm.start, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"mdtree on http://127.0.0.1:{PORT} ({'fake model' if FAKE else 'BitNet'})", flush=True)
+    print(f"Mhizva on http://127.0.0.1:{PORT} ({MODE})", flush=True)
     if "--no-browser" not in sys.argv:
         webbrowser.open(f"http://127.0.0.1:{PORT}")
     try:

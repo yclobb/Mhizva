@@ -20,6 +20,8 @@ window.renderMhizvaResult = function(result, openDoc) {
   function formatDate(value) {
     if(typeof value!=='string')return '';
     if(/^\d{4}-\d{2}-\d{2}$/.test(value))return new Intl.DateTimeFormat(I.locale,{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));
+    const chineseMonth=value.match(/^(\d{4})年(\d{1,2})月$/);
+    if(chineseMonth)return new Intl.DateTimeFormat(I.locale,{year:'numeric',month:'short',timeZone:'UTC'}).format(new Date(Date.UTC(Number(chineseMonth[1]),Number(chineseMonth[2])-1,1)));
     const match=value.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})$/);
     if(match){const month=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(match[1]);return new Intl.DateTimeFormat(I.locale,{year:'numeric',month:'short',timeZone:'UTC'}).format(new Date(Date.UTC(Number(match[2]),month,1)));}
     return value;
@@ -104,12 +106,10 @@ window.renderMhizvaResult = function(result, openDoc) {
     function display(row,col) {
       const value=rows[row]?.[col],column=columns[col];
       if(value===null||value===undefined)return '—';
-      if(I.language==='zh') {
-        if(column.type==='money'&&typeof value==='number')return new Intl.NumberFormat(I.locale,{style:'currency',currency:column.currency || 'AUD',currencyDisplay:'code',maximumFractionDigits:2}).format(value);
-        if(column.type==='percent'&&typeof value==='number')return (value>0?'+':'')+new Intl.NumberFormat(I.locale,{maximumFractionDigits:1}).format(value)+'%';
-        if(column.type==='date')return formatDate(value);
-        if(column.name==='Trend')return t(String(value));
-      }
+      if(column.type==='money'&&typeof value==='number'&&/^[A-Z]{3}$/.test(column.currency || 'AUD'))return new Intl.NumberFormat(I.locale,{style:'currency',currency:column.currency || 'AUD',currencyDisplay:'code',maximumFractionDigits:2}).format(value);
+      if(column.type==='percent'&&typeof value==='number')return (value>0?'+':'')+new Intl.NumberFormat(I.locale,{maximumFractionDigits:1}).format(value)+'%';
+      if(column.type==='date')return formatDate(value);
+      if(column.name==='Trend'||column.name==='趋势')return t(String(value));
       return table.text?.[row]?.[col] ?? String(value);
     }
     function drawRows() {
@@ -124,8 +124,9 @@ window.renderMhizvaResult = function(result, openDoc) {
     }
     columns.forEach((column,index)=>{
       const th=el('th');th.scope='col';th.setAttribute('aria-sort','none');
-      const name=t(column.name)+(column.type==='money'?' ('+(column.currency || 'AUD')+')':'');
+      const name=t(column.name)+(column.type==='money'?' ('+(column.currency==='mixed'?t('mixedCurrencies'):column.currency || 'AUD')+')':'');
       const button=el('button','sort-button',name+' ↕');button.type='button';button.setAttribute('aria-label',t('sortBy',{name}));
+      if(column.type==='money'&&column.currency==='mixed'){button.disabled=true;button.title=t('mixedSort');button.setAttribute('aria-label',name);}
       button.addEventListener('click',()=>{
         ascending=sortColumn===index?!ascending:true;sortColumn=index;
         for(const header of headRow.children)header.setAttribute('aria-sort','none');th.setAttribute('aria-sort',ascending?'ascending':'descending');
