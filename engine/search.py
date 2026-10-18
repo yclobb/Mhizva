@@ -138,6 +138,8 @@ def clean_history(history):
         if not isinstance(h, dict) or h.get("role") not in ("user", "assistant"):
             continue
         content = str(h.get("content") or "").strip()[:500]
+        if h["role"] == "assistant" and FALSE_MAKER.search(content):
+            continue  # an earlier made-up identity must not be repeated from history
         if not content or size + len(content) > HISTORY_CHARS or len(out) >= HISTORY_TURNS:
             break
         out.append({"role": h["role"], "content": content})
