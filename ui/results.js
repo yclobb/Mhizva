@@ -30,9 +30,11 @@ window.renderMhizvaResult = function(result, openDoc) {
     const parts=[t('coverage',{used:coverage.documents_used ?? 0,total:coverage.documents_with_facts ?? 0})];
     if(coverage.date_range?.length===2)parts.push(coverage.date_range.map(formatDate).join(' – '));
     if(coverage.duplicates_merged)parts.push(t('duplicates',{count:coverage.duplicates_merged}));
-    if(coverage.currency)parts.push(t('currency',{currency:coverage.currency}));
+    const currencies=Array.isArray(coverage.currency)?coverage.currency.join(' / '):coverage.currency;
+    if(currencies)parts.push(t('currency',{currency:currencies}));
     wrap.append(el('p','',parts.join(' · ')));
     const notes=[];if(coverage.subset)notes.push(t('subset'));if(coverage.missing_dates)notes.push(t('missingDates',{count:coverage.missing_dates}));if(coverage.dates_from_document)notes.push(t('inferredDates',{count:coverage.dates_from_document}));
+    for(const [currency,count] of Object.entries(coverage.excluded_other_currency || {})){if(Number.isFinite(count)&&count>0)notes.push(t(count===1?'excludedCurrencyOne':'excludedCurrency',{count,currency}));}
     if(notes.length)wrap.append(el('p','coverage-notes',notes.join(' · ')));
     root.append(wrap);
   }
