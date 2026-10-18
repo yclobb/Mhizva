@@ -41,13 +41,15 @@ TEMPLATES = {
 class Chat:
     system: str
     user: str
+    turns: tuple = ()  # earlier (role, text) pairs, role "user" | "assistant"
 
     def __str__(self):  # readable form, used by FakeLLM and in logs
-        return f"System: {self.system}<|eot_id|>User: {self.user}<|eot_id|>Assistant: "
+        past = "".join(f"{'User' if r == 'user' else 'Assistant'}: {t}<|eot_id|>" for r, t in self.turns)
+        return f"System: {self.system}<|eot_id|>{past}User: {self.user}<|eot_id|>Assistant: "
 
 
-def chat(system, user):
-    return Chat(system, user)
+def chat(system, user, turns=()):
+    return Chat(system, user, tuple(turns))
 
 
 def find_server_exe():
@@ -98,9 +100,14 @@ class ServerLLM:
             self.proc.terminate()
 
     def format(self, prompt):
-        if isinstance(prompt, Chat):
-            return self.template.format(system=prompt.system, user=prompt.user)
-        return str(prompt)
+        """The model's own chat template, earlier turns included as real turns."""
+        if not isinstance(prompt, Chat):
+            return str(prompt)
+        text = self.template.format(system=prompt.system, user=prompt.user)
+        if prompt.turns and "<|im_start|>" in self.template:
+            past = "".join(f"<|im_start|>{r}\n{t}<|im_end|>\n" for r, t in prompt.turns)
+            text = text.replace("<|im_start|>user\n", past + "<|im_start|>user\n", 1)
+        return text
 
     def _post(self, body):
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/completion",
@@ -127,6 +134,12 @@ class ServerLLM:
         if total <= 0:
             return {l: 1.0 / len(labels) for l in labels}
         return {l: probs.get(l, 0.0) / total for l in labels}
+
+    def form(self, prompt, schema, n=120):
+        """Fill a JSON form: llama-server constrains decoding to the schema, so the output is always valid."""
+        out = self._post({"prompt": self.format(prompt), "n_predict": n, "temperature": 0,
+                          "cache_prompt": True, "json_schema": schema})
+        return json.loads(out.get("content") or "null")
 
     def write(self, prompt, n=80, stop=None):
         stop = [self.end if s == "<|eot_id|>" else s for s in (stop or ["<|eot_id|>", "\n\n"])]
@@ -170,6 +183,10 @@ class TeamLLM:
 
     def write(self, prompt, n=80, stop=None):
         return self.large.write(prompt, n, stop)
+
+    def form(self, prompt, schema, n=120):
+        """Understanding runs on the small model (fast); the large one is not needed to fill a form."""
+        return self.small.form(prompt, schema, n)
 
 
 WORD = re.compile(r"[a-z0-9$]+")

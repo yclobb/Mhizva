@@ -1,0 +1,61 @@
+{"q": "hi", "intent": "chat"}
+{"q": "hello there!", "intent": "chat"}
+{"q": "thanks", "intent": "chat"}
+{"q": "ok", "intent": "chat"}
+{"q": "u dum", "intent": "chat"}
+{"q": "ok but u didnt answer my statement", "intent": "chat"}
+{"q": "i am ur creator", "intent": "chat"}
+{"q": "no i literally made u", "intent": "chat"}
+{"q": "u like cheese", "intent": "chat"}
+{"q": "you're actually pretty useful", "intent": "chat"}
+{"q": "lol that was wrong", "intent": "chat"}
+{"q": "你好", "intent": "chat"}
+{"q": "what model are you", "intent": "about_me"}
+{"q": "r u an ai", "intent": "about_me"}
+{"q": "how smart are you", "intent": "about_me"}
+{"q": "ok. what are your limitations compared to higher quality models like claude opus 5.5 and where do you outperform them", "intent": "about_me"}
+{"q": "who made you?", "intent": "about_me"}
+{"q": "can you see my files?", "intent": "about_me"}
+{"q": "你是谁？", "intent": "about_me"}
+{"q": "why is cheese yummy?", "intent": "general"}
+{"q": "what chemicals make it complex and give it flavors?", "intent": "general"}
+{"q": "yes but what specifically", "intent": "general"}
+{"q": "What is GST?", "intent": "general"}
+{"q": "who was the first prime minister of australia?", "intent": "general"}
+{"q": "explain compound interest simply", "intent": "general"}
+{"q": "what's the difference between a quote and an invoice?", "intent": "general"}
+{"q": "太阳系有几颗行星？", "intent": "general"}
+{"q": "i have 5000 dollars sitting in cash and i want to throw all of it into an index fund right now", "intent": "advice"}
+{"q": "should I sue my supplier for late delivery?", "intent": "advice"}
+{"q": "is it a good idea to hire another worker this year?", "intent": "advice"}
+{"q": "When does the ute insurance renew?", "intent": "lookup"}
+{"q": "Who is the insurer for the ute?", "intent": "lookup"}
+{"q": "How much is the Smith contract?", "intent": "lookup"}
+{"q": "How much annual leave do staff get?", "intent": "lookup"}
+{"q": "When is the Lee Cafe invoice due?", "intent": "lookup"}
+{"q": "Smith contract price", "intent": "lookup"}
+{"q": "what are the payment terms on the smith job", "intent": "lookup"}
+{"q": "When was INV-10050 due?", "intent": "lookup"}
+{"q": "员工年假有几天？", "intent": "lookup"}
+{"q": "How much is owed on invoices in total?", "intent": "total", "direction": "in"}
+{"q": "How much have we spent on supplier bills in total?", "intent": "total", "direction": "out"}
+{"q": "How much is unpaid in total?", "intent": "total"}
+{"q": "What is the total tax?", "intent": "total"}
+{"q": "what do clients still owe us", "intent": "total", "direction": "in"}
+{"q": "what's our total spend with Timber Co", "intent": "total", "direction": "out"}
+{"q": "发票一共要收多少钱？", "intent": "total", "direction": "in"}
+{"q": "How many invoices are written off?", "intent": "count"}
+{"q": "how many suppliers do we have", "intent": "count"}
+{"q": "List all invoices due in April 2026", "intent": "list"}
+{"q": "List written off invoices from 2008", "intent": "list"}
+{"q": "show me every bill from Timber Co", "intent": "list"}
+{"q": "which invoices are still unpaid", "intent": "list"}
+{"q": "列出4月的所有发票", "intent": "list"}
+{"q": "Chart invoices by customer", "intent": "chart", "group_by": "customer"}
+{"q": "Chart unpaid totals by debtor", "intent": "chart", "group_by": "debtor"}
+{"q": "can you graph spending per supplier", "intent": "chart", "group_by": "supplier"}
+{"q": "按客户画图表", "intent": "chart", "group_by": "客户"}
+{"q": "Are timber costs going up?", "intent": "trend"}
+{"q": "Which suppliers are increasing their prices?", "intent": "trend"}
+{"q": "has our electricity bill been getting worse", "intent": "trend"}
+{"q": "木材价格在上涨吗？", "intent": "trend"}
