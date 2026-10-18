@@ -6,6 +6,7 @@ score. Budget a branch does not use flows back and on to the next-best unvisited
 and folder visits have their own ceilings, so a deep tree cannot run away.
 """
 import json
+import math
 import os
 import re
 import time
@@ -305,7 +306,12 @@ class Searcher:
             chosen = [i for i in order if scores[i] >= CUTOFF][:self.split] or order[:1]
         total = sum(scores[i] for i in chosen)
         tern = {i: branch_ternary(scores[i], i in chosen) for i in order}
+        total_s = sum(scores) or 1.0
+        probs = [x / total_s for x in scores]
         step = {"index": folder or "Library",
+                # routing diagnostics: entropy (how undecided) and margin (top minus runner-up)
+                "entropy": round(-sum(x * math.log(x) for x in probs if x > 0), 3),
+                "margin": round(top - second, 3),
                 "scores": {entries[i].name: round(scores[i], 3) for i in order},
                 "ternary": {entries[i].name: tern[i] for i in order},
                 "chosen": [entries[i].name for i in chosen]}

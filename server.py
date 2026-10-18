@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from engine import facts  # noqa: E402
+from engine import facts, routelog  # noqa: E402
 from engine.ingest import add_file  # noqa: E402
 from engine.llm import FakeLLM, ServerLLM, TeamLLM  # noqa: E402
 from engine.search import CANCELLED, Searcher  # noqa: E402
@@ -130,6 +130,7 @@ class Handler(BaseHTTPRequestHandler):
                                        online=bool(req.get("online")), effort=req.get("effort") or "medium",
                                        request_id=req.get("request_id"))
                     answers[res["id"]] = res  # kept for /api/export
+                    routelog.record(lib, q, res)  # routing diagnostics stay on this computer
                     while len(answers) > 200:
                         answers.pop(next(iter(answers)))
                     return self.send(200, res)

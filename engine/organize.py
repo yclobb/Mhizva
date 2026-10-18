@@ -1,4 +1,5 @@
-"""Self-organisation (the creator's design): MCTS over header clarifications, scored by a blind smoke test,
+"""SUPERSEDED by engine/routelog.py (entropy x error ranking + keyword gaps from real failed queries), pending
+query logs; kept for reference. Self-organisation (the creator's design): MCTS over header clarifications, scored by a blind smoke test,
 with a learned value per kind of edit (the RL part).
 
   questions  each document's own generated questions (made at upload) plus one from its title; the target is
