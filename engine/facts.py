@@ -532,12 +532,21 @@ def answer_basic(picked, question, kind, zh=False):
 
 
 # ---- spreadsheet export (standard library only)
+def literal(v):
+    """Document text must never run as a spreadsheet formula (=, +, -, @, tab, CR): prefix an apostrophe,
+    except for plain numbers and amounts like -12.50 or -$1,200."""
+    v = str(v)
+    if v[:1] in ("=", "+", "-", "@", "\t", "\r") and not re.fullmatch(r"-?[$¥]?-?[\d,]+(\.\d+)?%?", v):
+        return "'" + v
+    return v
+
+
 def to_csv(table):
     import csv
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow([c["name"] for c in table["columns"]])
-    w.writerows(table["text"])
+    w.writerow([literal(c["name"]) for c in table["columns"]])
+    w.writerows([[literal(v) for v in row] for row in table["text"]])
     return buf.getvalue().encode("utf-8-sig")
 
 
