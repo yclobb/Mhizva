@@ -245,7 +245,14 @@ GENERIC = set(words("total sum altogether combined average how many much list al
                     "changed changing getting worse better expensive cheaper over time "
                     "supplier suppliers vendor vendors customer customers client clients their which who "
                     "paid pay spend spent owe owed owing have has "
-                    "everything anything"))
+                    "everything anything "
+                    # ranking and comparing describe the question, not what it is about
+                    "most top highest largest biggest least lowest smallest best worst compare versus vs more "
+                    "less than make made net profit cash flow balance money right now currently out coming going"))
+# words that become filters in the understanding step's form; removed from the subject when the form has filters
+FILTER_WORDS = set(words("overdue late unpaid paid outstanding settled written off partly partially due "
+                         "today yesterday week month quarter year ytd last this next days over under above below "
+                         "more less than dollars amount"))
 # Chinese question wording, removed from the question text before it is cut into character pairs
 # (otherwise 哪些供应商 would leave the pair 些供 behind as a fake subject).
 CN_GENERIC = sorted(("总共 合计 一共 总额 总计 平均 多少钱 多少 几个 列出 所有 表格 电子表格 清单 图表 画图 柱状图 "
@@ -286,10 +293,14 @@ def money_direction(question):
     return None
 
 
-def select(rows, question):
+def select(rows, question, form=None):
     """Rows relevant to the question: subject words must meet the row; dates must fall in the window."""
     q = subject_words(question)
-    win = date_window(question)
+    form = form or {}
+    if form.get("filters"):  # status, dates and amounts are applied as filters, not matched as words
+        q -= FILTER_WORDS | {w for v in form["filters"].values() for w in words(str(v))}
+    # a period in the form is applied by filters.apply (it knows due vs paid dates), not here
+    win = None if (form.get("filters") or {}).get("period") else date_window(question)
     out = []
     scored = []
     for r in rows:
@@ -306,7 +317,8 @@ def select(rows, question):
         out = []
     want_money = bool(re.search(r"\b(how much|total|sum|cost|price|owe|pay|spend|spent|worth)|\$"
                                 r"|多少钱|金额|总额|费用|价格|成本|付|欠|元|¥|￥", question.lower()))
-    way = money_direction(question)
+    way = form.get("direction") if form.get("direction") in ("in", "out") else \
+        (None if form.get("direction") == "net" else money_direction(question))
     if way:  # money owed to the business and money it pays are never mixed
         same_way = [r for r in out if r["amount"] is None or r.get("direction") == way]
         if any(r["amount"] is not None for r in same_way):  # untagged libraries keep working
@@ -587,12 +599,21 @@ def one_currency(picked):
     return kept, {k: v for k, v in c.items() if k != main}
 
 
-def answer(rows, question, kind):
+def answer(rows, question, kind, form=None):
     """(answer text, table, chart, coverage) for aggregate / table / chart / trend questions,
     or None if nothing matches. Always computed over the whole facts table, not a search budget.
     The answer is in Chinese when the question is."""
     zh = has_cjk(question)
-    picked = select(rows, question)
+    form = form or {}
+    picked = select(rows, question, form)
+    if form.get("filters"):
+        from . import filters
+        kept = Rows(filters.apply(picked, form["filters"]))
+        kept.merged, picked = picked.merged, kept
+    if kind in ("rank", "compare") or form.get("direction") == "net":
+        res = rank_or_compare(rows, picked, question, kind, form, zh)
+        if res:
+            return res
     if not picked:
         return None
     excluded = {}
@@ -644,6 +665,57 @@ def regroup(rows, question):
     if not field:
         return rows
     return [{**r, "party": r.get("fields", {}).get(field) or r["party"]} for r in rows]
+
+
+def rank_or_compare(rows, picked, question, kind, form, zh):
+    """Top/bottom groups, or money in vs money out (net). Says plainly what data is missing."""
+    from . import filters
+    per = best_per_doc(picked, question)
+    if kind == "rank":
+        field = group_field(per, question) or next(
+            (k for r in per for k in r.get("fields", {}) if form.get("group_by") and
+             set(words(form["group_by"])) & set(words(k))), None)
+        ranked = filters.rank(per, question, field)
+        if not ranked:
+            return None
+        unit = cur(per[0])
+        table = {"columns": [{"name": "Who", "type": "text"}, {"name": "Amount", "type": "money", "currency": unit},
+                             {"name": "Records", "type": "text"}],
+                 "rows": [[k, round(v, 2), str(len(m))] for k, v, m in ranked],
+                 "text": [[k, money(v, unit), str(len(m))] for k, v, m in ranked],
+                 "sources": [[{"path": r["doc"], "quote": r["text"]} for r in m] for _, _, m in ranked]}
+        chart = {"type": "bar", "y": {"name": "Amount", "unit": unit},
+                 "points": [{"x": k, "value": round(v, 2), "rows": [i]} for i, (k, v, _) in enumerate(ranked)]}
+        lead = "; ".join(f"{k} {money(v, unit)}" for k, v, _ in ranked[:3])
+        used = [r for _, _, m in ranked for r in m]
+        return f"Top {len(ranked)}: {lead}.", table, chart, coverage(rows, used, picked.merged)
+    # compare / net: money in vs money out over the same filters
+    money_in, money_out, ins, outs = filters.compare_in_out(per)
+    if not ins and not outs:
+        return None
+    unit = cur((ins or outs)[0])
+    if not outs or not ins:
+        missing = "bills or expenses" if not outs else "invoices or sales"
+        text = (f"I can only see one side: {money(money_in or money_out, unit)} "
+                f"{'coming in' if ins else 'going out'}. To compare, I need your {missing} as well.")
+    else:
+        text = (f"Money in {money(money_in, unit)}, money out {money(money_out, unit)}, "
+                f"net {money(money_in - money_out, unit)}.")
+    if re.search(r"\b(cash|bank|balance sheet|account balance)", question.lower()):
+        text += " This is invoiced minus billed, not cash in the bank; for that I'd need your bank or accounting export."
+    table = {"columns": [{"name": "Side", "type": "text"}, {"name": "Amount", "type": "money", "currency": unit},
+                         {"name": "Records", "type": "text"}],
+             "rows": [["Money in", round(money_in, 2), str(len(ins))], ["Money out", round(money_out, 2), str(len(outs))],
+                      ["Net", round(money_in - money_out, 2), ""]],
+             "text": [["Money in", money(money_in, unit), str(len(ins))],
+                      ["Money out", money(money_out, unit), str(len(outs))],
+                      ["Net", money(money_in - money_out, unit), ""]],
+             "sources": [[{"path": r["doc"], "quote": r["text"]} for r in ins[:20]],
+                         [{"path": r["doc"], "quote": r["text"]} for r in outs[:20]], []]}
+    chart = {"type": "bar", "y": {"name": "Amount", "unit": unit},
+             "points": [{"x": "Money in", "value": round(money_in, 2), "rows": [0]},
+                        {"x": "Money out", "value": round(money_out, 2), "rows": [1]}]}
+    return text, table, chart, coverage(rows, ins + outs, picked.merged)
 
 
 def answer_basic(picked, question, kind, zh=False):

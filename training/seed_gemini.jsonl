@@ -1,0 +1,20 @@
+{"source": "gemini", "q": "Show me the breakdown of what each person owes.", "intent": "total", "direction": "in", "group_by": "customer", "filters": {"status": "unpaid"}, "subject": "balances due"}
+{"source": "gemini", "q": "Give me a monthly breakdown of sales for this year.", "intent": "total", "direction": "in", "group_by": "month", "filters": {"period": "this_year"}, "subject": "sales"}
+{"source": "gemini", "q": "Who hasn't paid their invoice yet?", "intent": "list", "direction": "in", "group_by": "", "filters": {"status": "unpaid"}, "subject": "outstanding invoices"}
+{"source": "gemini", "q": "Show me a list of bills I need to pay this week.", "intent": "list", "direction": "out", "group_by": "", "filters": {"period": "this_week", "date_field": "due"}, "subject": "upcoming bills"}
+{"source": "gemini", "q": "What is the total sum of overdue invoices?", "intent": "total", "direction": "in", "group_by": "", "filters": {"status": "overdue"}, "subject": "overdue payments"}
+{"source": "gemini", "q": "Which clients owe me the most money right now?", "intent": "rank", "direction": "in", "group_by": "customer", "filters": {"status": "unpaid"}, "subject": "highest balance"}
+{"source": "gemini", "q": "Did we spend more money or make more money this month?", "intent": "compare", "direction": "net", "group_by": "", "filters": {"period": "this_month"}, "subject": "profit and loss"}
+{"source": "gemini", "q": "Who were my top-spending clients last quarter?", "intent": "rank", "direction": "in", "group_by": "customer", "filters": {"period": "last_quarter"}, "subject": "sales revenue"}
+{"source": "gemini", "q": "Which products brought in the most money this year?", "intent": "rank", "direction": "in", "group_by": "product", "filters": {"period": "this_year"}, "subject": "revenue"}
+{"source": "gemini", "q": "Show me our highest expenses from last month compared to our revenue.", "intent": "compare", "direction": "net", "group_by": "category", "filters": {"period": "last_month"}, "subject": "income vs expense"}
+{"source": "gemini", "q": "What is my current cash balance across all accounts?", "intent": "total", "direction": "net", "group_by": "", "filters": {}, "subject": "cash on hand"}
+{"source": "gemini", "q": "What was our net profit for the second quarter?", "intent": "total", "direction": "net", "group_by": "", "filters": {"period": "this_year-Q2"}, "subject": "net profit"}
+{"source": "gemini", "q": "Are we cash flow positive or negative year-to-date?", "intent": "total", "direction": "net", "group_by": "", "filters": {"period": "ytd"}, "subject": "net cash flow"}
+{"source": "gemini", "q": "Give me the overall balance sheets for the company.", "intent": "list", "direction": "net", "group_by": "account", "filters": {}, "subject": "asset and liability balances"}
+{"source": "gemini", "q": "List all transactions where we spent over one thousand dollars.", "intent": "list", "direction": "out", "group_by": "", "filters": {"amount": ">1000"}, "subject": "large expenses"}
+{"source": "gemini", "q": "Total up all the sales completed yesterday.", "intent": "total", "direction": "in", "group_by": "", "filters": {"period": "yesterday"}, "subject": "sales"}
+{"source": "gemini", "q": "Show me the total vendor balances that are currently overdue.", "intent": "total", "direction": "out", "group_by": "", "filters": {"status": "overdue"}, "subject": "vendor balances"}
+{"source": "gemini", "q": "Show me all clients who are more than 30 days late on paying.", "intent": "list", "direction": "in", "group_by": "", "filters": {"status": "overdue", "days_overdue": ">30"}, "subject": "overdue invoices"}
+{"source": "gemini", "q": "What was our total spend on software subscriptions under 50 dollars?", "intent": "total", "direction": "out", "group_by": "", "filters": {"category": "software", "amount": "<50"}, "subject": "software expenses"}
+{"source": "gemini", "q": "Give me a list of suppliers we paid yesterday.", "intent": "list", "direction": "out", "group_by": "", "filters": {"period": "yesterday", "date_field": "paid", "status": "paid"}, "subject": "vendor payouts"}

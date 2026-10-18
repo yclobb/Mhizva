@@ -412,22 +412,24 @@ class Searcher:
                 return self.general(question, t0, [], business=mode != "general", advice=it == "advice") \
                     or self.friendly(question, t0)
         kind = {"total": "aggregate", "count": "aggregate", "list": "table", "chart": "chart",
-                "trend": "trend", "stats": "stats"}.get(it, "lookup")
+                "trend": "trend", "stats": "stats", "rank": "rank", "compare": "compare"}.get(it, "lookup")
         if mode == "data" and kind == "lookup":
             kind = "table"  # data mode never writes free text: a plain question lists the matching facts
         if mode == "data":
-            res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind)
+            res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind, self.understood)
             if not res:
                 zh = has_cjk(question)
                 return {"id": uuid.uuid4().hex[:12], "kind": kind, "found": False, "quotes": [], "table": None,
                         "chart": None, "coverage": None, "trace": [], "seconds": round(time.time() - t0, 2),
                         "answer": "没有找到相关的数字或日期。" if zh else "I couldn't find matching numbers or dates."}
         if kind != "lookup":
-            res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind)
+            res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind, self.understood)
             if res:  # cross-document question answered from the facts table; otherwise fall through
                 text, table, chart, cover = res
                 seen, quotes = set(), []
                 for src in table["sources"]:
+                    if not src:  # a computed row (e.g. Net) has no single source document
+                        continue
                     s = src[0]
                     if s["path"] not in seen and len(quotes) < 5:
                         seen.add(s["path"])
