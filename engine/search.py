@@ -72,19 +72,25 @@ CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|cheers|bye|goodbye|goo
 
 IDENTITY = re.compile(r"\b(what|which)\s+(ai|model|llm)\b|\bwho\s+(made|built|created|trained|owns)\s+(you|u)\b|"
                       r"\bare\s+(you|u)\s+(chatgpt|gpt|claude|gemini|an? ai|a bot|human)\b|\bwhat are (you|u)\b|"
-                      r"\bwho are (you|u)\b|什么模型|哪个模型|谁(做|造|开发|训练)了你|你是谁|你是什么", re.I)
+                      r"\bwho are (you|u)\b|\b(are|r)\s+(you|u)\s+(an?\s+)?(ai|bot|robot|human|real|person)\b|"
+                      r"\bhow (smart|clever|good|intelligent|capable)\s+(are|r)\s+(you|u)\b|\byour model\b|"
+                      r"\bwhat can (you|u) do\b|什么模型|哪个模型|谁(做|造|开发|训练)了你|你是谁|你是什么|你是AI|你多聪明", re.I)
 
 
 def identity(question, llm):
     """Small models invent who made them ("created by Anthropic"). Identity questions get a true, fixed answer."""
     models = [m.name for m in ((llm.small, llm.large) if hasattr(llm, "small") else (llm,)) if hasattr(m, "name")]
     names = " and ".join(models) if models else "a built-in keyword engine"
+    smart = re.search(r"smart|clever|good|intelligent|capable|what can|聪明", question, re.I)
     if has_cjk(question):
-        return (f"我是 Mhizva，在你的电脑上本地运行，不联网也能用。现在使用的模型是 {names}"
-                "（阿里巴巴的开源 Qwen 模型）。你的文件不会离开这台电脑。")
-    return (f"I'm Mhizva. I run locally on this computer using {names}"
-            + (" (open Qwen models from Alibaba)" if models else "")
-            + ", so your documents never leave it.")
+        return (f"我是 Mhizva，一个在你电脑上本地运行的 AI，现在使用的模型是 {names}（阿里巴巴的开源 Qwen 模型）。"
+                + ("我擅长从你的文件里找答案、算合计、做表格和图表；这些数字由程序计算，是准确的。"
+                   "常识问题我可能会出错。" if smart else "你的文件不会离开这台电脑。"))
+    return (f"I'm Mhizva, an AI that runs locally on this computer using {names}"
+            + (" (open Qwen models from Alibaba)" if models else "") + ". "
+            + ("I'm good at finding answers in your documents and at totals, tables, charts and trends, which are "
+               "calculated exactly by code. I'm a small model, so I can get general-knowledge facts wrong."
+               if smart else "Your documents never leave this computer."))
 
 
 def chit_chat(question):

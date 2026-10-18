@@ -52,6 +52,18 @@ def main():
         ok = g == [False, True, True, False]
         fails += not ok
         print("PASS" if ok else "FAIL", "grounding check", g)
+        # identity and chit-chat (GPT's cases): fixed true answers from runtime metadata, history active
+        from engine.llm import ServerLLM, TeamLLM
+        s.llm = TeamLLM(ServerLLM("qwen2.5-0.5b", 1), ServerLLM("qwen2.5-1.5b", 2))  # names only, never started
+        hist = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello!"}]
+        seq = [("r u an ai", "qwen2.5-1.5b"), ("what model are you", "qwen2.5-0.5b and qwen2.5-1.5b"),
+               ("i am ur creator", "Nice to meet you"), ("no i literally made u", "Nice to meet you"),
+               ("how smart are you", "small model"), ("for your model, what are you?", "qwen2.5-1.5b")]
+        for q, want in seq:
+            r = s.ask(q, mode="general", history=hist)
+            ok = want in r["answer"] and "Anthropic" not in r["answer"] and r["kind"] == "chat"
+            fails += not ok
+            print("PASS" if ok else "FAIL", "identity:", q, "->", r["answer"][:70])
         print(f"{fails} failures")
         return fails
     finally:
