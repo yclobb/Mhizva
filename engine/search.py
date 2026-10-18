@@ -70,6 +70,23 @@ CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|cheers|bye|goodbye|goo
                   r"\b(i am|i'm|im)\s+(ur|your)\b|\b(you|u)('re| are| r)\b|你好|您好|谢谢|再见|我(创造|做|造)了你|你是", re.I)
 
 
+IDENTITY = re.compile(r"\b(what|which)\s+(ai|model|llm)\b|\bwho\s+(made|built|created|trained|owns)\s+(you|u)\b|"
+                      r"\bare\s+(you|u)\s+(chatgpt|gpt|claude|gemini|an? ai|a bot|human)\b|\bwhat are (you|u)\b|"
+                      r"\bwho are (you|u)\b|什么模型|哪个模型|谁(做|造|开发|训练)了你|你是谁|你是什么", re.I)
+
+
+def identity(question, llm):
+    """Small models invent who made them ("created by Anthropic"). Identity questions get a true, fixed answer."""
+    models = [m.name for m in ((llm.small, llm.large) if hasattr(llm, "small") else (llm,)) if hasattr(m, "name")]
+    names = " and ".join(models) if models else "a built-in keyword engine"
+    if has_cjk(question):
+        return (f"我是 Mhizva，在你的电脑上本地运行，不联网也能用。现在使用的模型是 {names}"
+                "（阿里巴巴的开源 Qwen 模型）。你的文件不会离开这台电脑。")
+    return (f"I'm Mhizva. I run locally on this computer using {names}"
+            + (" (open Qwen models from Alibaba)" if models else "")
+            + ", so your documents never leave it.")
+
+
 def chit_chat(question):
     """Greetings, thanks and remarks about Mhizva ('i created you') are not questions: answer with a fixed
     friendly reply instead of handing a small model nothing to do (it tends to recite its instructions).
@@ -245,6 +262,8 @@ class Searcher:
         key = mode + "|" + " ".join(question.lower().split())  # whole question: "not" must change the key
         if key in self.cache:
             return {**self.cache[key], "seconds": round(time.time() - t0, 2), "cached": True}
+        if IDENTITY.search(question):
+            return {**self.friendly(question, t0), "answer": identity(question, self.llm)}
         if chit_chat(question):
             return self.friendly(question, t0)
         if mode == "general":

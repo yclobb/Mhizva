@@ -27,7 +27,7 @@ AMOUNT = re.compile(r"(?<![\w.])\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{2}))?(\s?[
 AMOUNT_CN = re.compile(r"(?:[¥￥]|RMB\s?|CNY\s?|人民币\s?)(\d[\d,]*(?:\.\d+)?)\s?(万|千)?\s?元?"
                        r"|(\d[\d,]*(?:\.\d+)?)\s?(万|千)?\s?元")
 DATE_CN = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日号])?")
-SYMBOL = {"AUD": "$", "CNY": "¥"}
+SYMBOL = {"AUD": "$", "CNY": "¥", "USD": "US$", "EUR": "€", "GBP": "£", "NZD": "NZ$"}
 DATE_DMY = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(" + "|".join(m[:3] for m in MONTHS) + r")[a-z]*\.?,?\s+(\d{4})\b", re.I)
 DATE_MDY = re.compile(r"\b(" + "|".join(m[:3] for m in MONTHS) + r")[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b", re.I)
 DATE_NUM = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")  # Australian day/month/year
