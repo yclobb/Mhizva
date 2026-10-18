@@ -6,3 +6,5 @@ library/
 *.log
 __pycache__/
 *.pyc
+# downloaded models
+models/

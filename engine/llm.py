@@ -117,14 +117,33 @@ def stem(w):
     return w[:-1] if len(w) > 3 and w.endswith("e") else w
 
 
+CJK = re.compile(r"[一-鿿]+")
+CN_SPLIT = re.compile(r"[的了是在和与及或吗呢吧请给把被]")
+CN_STOP = set("的 了 是 在 和 与 及 或 有 我 我们 你 你们 他 她 它 这 那 这个 那个 吗 呢 吧 什么 怎么 哪些 哪个 一个 请 给 把 被".split())
+
+
+def cjk_terms(text):
+    """Chinese has no spaces: match on overlapping character pairs (合同 金额 -> 合同, 同金, 金额)."""
+    out = []
+    for run in CJK.findall(text):
+        for part in CN_SPLIT.split(run):  # cut at particles so 合同的金额 doesn't yield 同的 / 的金
+            if part:
+                out += [part] if len(part) == 1 else [part[i:i + 2] for i in range(len(part) - 1)]
+    return [t for t in out if t not in CN_STOP]
+
+
+def has_cjk(text):
+    return bool(CJK.search(text))
+
+
 def plain_words(text):
-    """Readable keywords (no stemming), for index lines and names."""
-    return [w for w in WORD.findall(text.lower()) if w not in STOP and len(w) > 1]
+    """Readable keywords (no stemming), for index lines and names. Chinese becomes character pairs."""
+    return [w for w in WORD.findall(text.lower()) if w not in STOP and len(w) > 1] + cjk_terms(text)
 
 
 def words(text):
-    """Matching form: stemmed, so renew / renews / renewed meet."""
-    return [stem(w) for w in plain_words(text)]
+    """Matching form: stemmed, so renew / renews / renewed meet (Chinese pairs pass through)."""
+    return [stem(w) if w.isascii() else w for w in plain_words(text)]
 
 
 class FakeLLM:

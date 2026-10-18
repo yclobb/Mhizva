@@ -11,7 +11,7 @@ import uuid
 
 from . import facts
 from .ingest import LABELS, menu
-from .llm import chat, words
+from .llm import chat, has_cjk, words
 
 CUTOFF = 0.12      # children scored below this get no budget
 CLEAR_WIN = 0.6    # a child this strong takes everything
@@ -187,13 +187,15 @@ class Searcher:
         self.calls_left, self.nodes_left = MAX_CALLS, MAX_NODES
         self.descend(question, q, "", budget, trace, docs)
         picked = self.quotes(question, q, docs)
-        answer, found = "I couldn't find that in your documents.", False
+        zh = has_cjk(question)
+        answer, found = ("在你的文件里没有找到这个答案。" if zh else "I couldn't find that in your documents."), False
         if picked:
             listing = "\n".join(f"- {c[1]}" for c in picked)
             # Optimisation 4: the answer is one short sentence; the quotes carry the detail.
             text = self.llm.write(chat(
                 "Answer only from the quotes. If they do not contain the answer, reply NOT_FOUND.",
-                f"Quotes:\n{listing}\n\nQuestion: {question}\nAnswer in one short sentence."),
+                f"Quotes:\n{listing}\n\nQuestion: {question}\nAnswer in one short sentence"
+                + (", in Chinese." if zh else ".")),
                 n=60, stop=["<|eot_id|>", "\n"])
             if text and "NOT_FOUND" not in text:
                 answer, found = text, True

@@ -1,34 +1,23 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>Mhizva · Your documents, connected</title>
-  <link rel="stylesheet" href="/app.css">
-  <script src="/app.js" defer></script>
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Mhizva · Your documents, connected</title><link rel="stylesheet" href="/app.css"><script src="/i18n.js" defer></script><script src="/results.js" defer></script><script src="/app.js" defer></script></head>
 <body>
-  <aside class="library" aria-label="Document library">
-    <a class="brand" href="/" aria-label="Mhizva home"><span class="brand-mark">m<span>·</span></span>Mhizva</a>
-    <div class="library-heading"><h2>Your library</h2><span id="doc-count">—</span></div>
-    <div id="tree" class="tree" aria-label="Folders and documents"><p class="muted">Opening your library…</p></div>
-    <div id="drop-zone" class="drop-zone">
-      <input id="files" type="file" multiple class="visually-hidden">
-      <label for="files" class="upload-label"><span aria-hidden="true">＋</span> Add documents</label>
-      <p>or drop them here</p>
-    </div>
-    <div id="upload-status" role="status" aria-live="polite"></div>
-    <div class="privacy"><span aria-hidden="true">◈</span> At home on your computer</div>
-  </aside>
-  <main class="workspace">
-    <header class="topbar"><span class="workspace-name">A little clarity, from your own documents.</span><span id="model-status" class="model-status" role="status"><i></i> Connecting…</span></header>
-    <section id="conversation" class="conversation" aria-label="Conversation" aria-busy="false">
-      <div id="welcome" class="welcome"><div class="welcome-mark" aria-hidden="true">✳</div><p class="eyebrow">YOUR KNOWLEDGE, CLOSE AT HAND</p><h1>What would you like<br>to find out?</h1><p id="welcome-description">Add your documents, then ask in your own words.<br>We’ll help you find the answer and where it came from.</p><div class="welcome-note"><span aria-hidden="true">↖</span> <span id="welcome-hint">Start with a few documents in your library.</span></div></div>
-      <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
-    </section>
-    <div class="compose-area"><form id="ask-form" class="composer"><label for="question" class="visually-hidden">Ask about your documents</label><textarea id="question" placeholder="Ask about your documents…" rows="1" maxlength="12000"></textarea><button id="send" type="submit" aria-label="Send question" disabled>↑</button></form><p class="compose-note" id="compose-note">Answers grounded in your library. Always check the source.</p></div>
-  </main>
-  <dialog id="document-dialog" aria-labelledby="document-title"><div class="document-heading"><div><p id="document-path" class="eyebrow"></p><h2 id="document-title">Document</h2></div><button id="close-document" class="close-button" aria-label="Close document">×</button></div><p id="passage-note" role="status" hidden></p><article id="document-body" class="document-body"></article></dialog>
-</body>
-</html>
+<aside class="library" data-i18n-aria="libraryAria">
+<a class="brand" href="/" data-i18n-aria="home"><span class="brand-mark">m<span>·</span></span>Mhizva</a>
+<div class="library-heading"><h2 data-i18n="library">Your library</h2><span id="doc-count">—</span></div>
+<div id="tree" class="tree" data-i18n-aria="treeAria"><p class="muted" data-i18n="openingLibrary">Opening your library…</p></div>
+<div id="drop-zone" class="drop-zone"><input id="files" type="file" multiple class="visually-hidden"><label for="files" class="upload-label"><span aria-hidden="true">＋</span> <span data-i18n="addDocuments">Add documents</span></label><p data-i18n="dropHere">or drop them here</p></div>
+<div id="upload-status" role="status" aria-live="polite"></div>
+<div class="privacy"><span aria-hidden="true">◈</span> <span data-i18n="privacy">At home on your computer</span></div>
+</aside>
+<main class="workspace">
+<header class="topbar"><span class="workspace-name" data-i18n="tagline">A little clarity, from your own documents.</span><div class="topbar-actions"><label for="language" class="visually-hidden" data-i18n="language">App language</label><select id="language" data-i18n-aria="language"><option value="en" lang="en">English</option><option value="zh" lang="zh-CN">中文</option></select><span id="model-status" class="model-status" role="status"><i></i> Connecting…</span></div></header>
+<div id="demo-notice" class="demo-notice" data-i18n="demo" role="status" hidden>Stand-in demo · lookups use keyword matching</div>
+<section id="conversation" class="conversation" data-i18n-aria="conversation" aria-busy="false">
+<div id="welcome" class="welcome"><div class="welcome-mark" aria-hidden="true">✳</div><p class="eyebrow" data-i18n="eyebrow">YOUR KNOWLEDGE, CLOSE AT HAND</p><h1 data-i18n="welcomeTitle">What would you like to find out?</h1><p id="welcome-description"></p><div class="welcome-note"><span aria-hidden="true">↖</span> <span id="welcome-hint"></span></div></div>
+<div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+</section>
+<div class="compose-area"><form id="ask-form" class="composer"><label for="question" class="visually-hidden" data-i18n="questionLabel">Ask about your documents</label><textarea id="question" data-i18n-placeholder="questionPlaceholder" placeholder="Ask about your documents…" rows="1" maxlength="12000"></textarea><button id="send" type="submit" data-i18n-aria="send" disabled>↑</button></form><p class="compose-note" id="compose-note" data-i18n="sourceReminder">Answers grounded in your library. Always check the source.</p></div>
+</main>
+<dialog id="document-dialog" aria-labelledby="document-title"><div class="document-heading"><div><p id="document-path" class="eyebrow"></p><h2 id="document-title">Document</h2></div><button id="close-document" class="close-button" data-i18n-aria="closeDocument">×</button></div><p id="passage-note" role="status" data-i18n="missingPassage" hidden></p><article id="document-body" class="document-body"></article></dialog>
+</body></html>
