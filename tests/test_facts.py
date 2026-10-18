@@ -109,7 +109,7 @@ def main():
         check("type-first filing", {"Invoices", "Bills", "Contracts", "Quotes"} <= {e.name for e in lib.entries("")},
               str([e.name for e in lib.entries("")]))
 
-        # modes (Lucas): general never touches the library; data only computes; business never goes general
+        # modes (creator's design): general never touches the library; data only computes; business never goes general
         r = s.ask("When does the ute insurance renew?", mode="general")
         check("general mode skips library", r["kind"] == "general" and not r["quotes"] and r["mode"] == "general", r["kind"])
         r = s.ask("Timber Co", mode="data")

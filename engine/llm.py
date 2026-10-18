@@ -149,7 +149,7 @@ class ServerLLM:
 
 
 class TeamLLM:
-    """Lucas's nested team: the small model makes the many quick picks; when its top two choices are
+    """The creator's nested team: the small model makes the many quick picks; when its top two choices are
     within ESCALATE of each other the large model decides instead; the large model does all writing."""
     ESCALATE = 0.2
 

@@ -1,4 +1,4 @@
-"""Understanding step (Lucas's Tier 1): every message becomes one structured form before anything runs.
+"""Understanding step (the creator's Tier-1 design): every message becomes one structured form before anything runs.
 
 The model fills a fixed JSON form with schema-constrained decoding, so it can only output valid fields:
     {"intent": ..., "direction": "in"|"out"|"none", "group_by": str, "subject": str}
@@ -115,7 +115,7 @@ def pick_prompt(question, history=()):
 
 def understand(llm, question, history=(), rules_weight=0.0):
     """Intent by one-letter pick (no free text). With a TeamLLM the small model decides and hands close calls
-    to the large one (Lucas: 0.5 -> 1.5). rules_weight blends in the keyword rules as a prior.
+    to the large one (the creator's design: 0.5 -> 1.5). rules_weight blends in the keyword rules as a prior.
     Direction and group_by come from the rules (they are reliable for those)."""
     rules = rules_intent(question)
     if not hasattr(llm, "form"):  # stand-in model
@@ -151,13 +151,13 @@ def parse(llm, question, history=(), fields=()):
 DEEP_CALLS = [0]
 
 
-def cascade(fast, deep, question, history=(), fields=()):
-    """Lucas's 'think more': the quick path (keyword rules + the small model's form) decides when both agree;
+def cascade(fast, deep, question, history=(), fields=(), always=False):
+    """the creator's 'think more' design: the quick path (keyword rules + the small model's form) decides when both agree;
     when they disagree, the larger model fills the form and decides."""
     rules = rules_intent(question)
     quick = parse(fast, question, history, fields) if fast is not None else {**rules, "by": "rules"}
     keep = {k: rules[k] for k in ("direction", "group_by") if k in rules}  # the rules are reliable for these
-    if quick["intent"] == rules["intent"] or deep is None:
+    if deep is None or (quick["intent"] == rules["intent"] and not always):  # high effort: always think
         return {**quick, **keep, "by": "agree"}
     DEEP_CALLS[0] += 1
     slow = parse(deep, question, history, fields)

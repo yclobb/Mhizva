@@ -22,7 +22,7 @@ sys.path.insert(0, HERE)
 from engine import facts  # noqa: E402
 from engine.ingest import add_file  # noqa: E402
 from engine.llm import FakeLLM, ServerLLM, TeamLLM  # noqa: E402
-from engine.search import Searcher  # noqa: E402
+from engine.search import CANCELLED, Searcher  # noqa: E402
 from engine.tree import Library  # noqa: E402
 
 PORT = 8765
@@ -75,7 +75,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == "/api/status":
                 return self.send(200, {"model": llm.state, "mode": MODE, "docs": lib.count_docs(),
-                                      "busy": busy["n"] > 0})
+                                      "busy": busy["n"] > 0,
+                                      "online": {"available": not FAKE, "provider": "Wikipedia"}})
             if u.path == "/api/tree":
                 return self.send(200, lib.tree())
             if u.path == "/api/export":
@@ -110,6 +111,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if u.path == "/api/cancel":
+            rid = (json.loads(body or b"{}").get("request_id") or "").strip()
+            if rid:
+                CANCELLED.add(rid)
+            return self.send(200, {"cancelled": bool(rid)})
         if llm.state != "ready":
             return self.send(503, {"error": "The model is still loading."})
         busy["n"] += 1
@@ -120,7 +126,9 @@ class Handler(BaseHTTPRequestHandler):
                     q = (req.get("question") or "").strip()
                     if not q:
                         return self.send(400, {"error": "empty question"})
-                    res = searcher.ask(q, mode=req.get("mode") or "auto", history=req.get("history"))
+                    res = searcher.ask(q, mode=req.get("mode") or "auto", history=req.get("history"),
+                                       online=bool(req.get("online")), effort=req.get("effort") or "medium",
+                                       request_id=req.get("request_id"))
                     answers[res["id"]] = res  # kept for /api/export
                     while len(answers) > 200:
                         answers.pop(next(iter(answers)))

@@ -5,11 +5,13 @@ gets a score; a clear winner takes the whole budget (optimisation 5), otherwise 
 score. Budget a branch does not use flows back and on to the next-best unvisited branch. Model calls
 and folder visits have their own ceilings, so a deep tree cannot run away.
 """
+import json
+import os
 import re
 import time
 import uuid
 
-from . import facts, intent
+from . import facts, intent, online
 from .ingest import LABELS, menu
 from .llm import chat, has_cjk, words
 
@@ -23,8 +25,23 @@ BACKTRACK_FLOOR = 0.05  # leftover budget never flows to children scored below t
 MAX_CALLS = 12     # routing calls per question (index scoring); keywords only after that.
                    # Each answer adds at most one passage pick and one short write on top.
 MAX_NODES = 40     # folders visited per question
-COUNTRY = "Australia"  # where the business is; general answers assume it (becomes a setting later)
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mhizva.json")
+try:  # product facts (creator, country), read once; the model is told these, never guesses them
+    CONFIG = json.load(open(CONFIG_PATH, encoding="utf-8"))
+except (OSError, ValueError):
+    CONFIG = {}
+COUNTRY = CONFIG.get("country", "Australia")  # where the business is; general answers assume it
 MODES = ("auto", "general", "data", "business")
+# effort (creator's design): budget = documents read, split = branches explored per folder,
+# calls = routing model calls, think = when the large model checks the understanding step
+EFFORT = {"low": {"budget": 2.0, "split": 2, "calls": 6, "think": "never"},
+          "medium": {"budget": 4.0, "split": 4, "calls": 12, "think": "on_disagreement"},
+          "high": {"budget": 8.0, "split": 6, "calls": 24, "think": "always"}}
+CANCELLED = set()  # request ids the user interrupted; checked between steps
+
+
+class Interrupted(Exception):
+    pass
 
 
 def overlap(q, text):
@@ -116,14 +133,30 @@ FALSE_MAKER = re.compile(r"\b(created|made|developed|trained|built|designed)\s+b
                          r"由(Anthropic|OpenAI|谷歌)", re.I)  # "made by Alibaba" / Qwen is true, so not blocked
 
 
+APP_LAYOUT = ("the app has a left sidebar with the user's library (folders and documents) and an Add documents "
+              "button for files (PDF, Word, text, CSV and Excel); a chat box; three modes at the top: General "
+              "(plain assistant, never uses the documents), Data (only exact totals, tables, charts and trends "
+              "computed from the documents) and Business (answers only from the documents, with sources); every "
+              "document answer shows clickable sources; tables can be downloaded as Excel or CSV; a "
+              "中文/English switch; and an Online switch, off by default, that searches the web for general "
+              "questions and sends only the question")
+
+
 def self_facts(llm):
-    """What the model is told about itself: the real runtime, never a guess."""
+    """What the model is told about itself. Profile facts (app, its creator, who is using it) come from
+    mhizva.json; runtime facts (which models run) from the live setup. The app's creator and the makers of
+    the underlying models are separate facts."""
     models = [m.name for m in ((llm.small, llm.large) if hasattr(llm, "small") else (llm,)) if hasattr(m, "name")]
     names = " and ".join(models) if models else "a keyword engine (no AI model loaded)"
-    return (f"your name is Mhizva; you run locally on this computer with no internet; you use {names}"
-            + (", open Qwen models made by Alibaba" if models else "")
+    creator, user = CONFIG.get("app_creator"), CONFIG.get("current_user")
+    return ("your name is Mhizva"
+            + (f"; Mhizva (the app) was created by {creator}" if creator else "")
+            + (f"; the person using you right now is {user}" if user else "")
+            + f"; you run locally on this computer; underneath you are {names}"
+            + (", pretrained open models made by Alibaba (Alibaba made the models, not Mhizva)" if models else "")
             + "; you were built for small businesses to answer questions from their own documents, and their "
-              "documents never leave the computer; you are small, so you can get general facts wrong.")
+              "documents never leave the computer; you are small, so you can get general facts wrong; "
+            + APP_LAYOUT + ".")
 
 
 def chit_chat(question):
@@ -193,6 +226,7 @@ class Searcher:
         self.lib, self.llm = lib, llm
         self.history = []
         self.mode = "auto"
+        self.effort, self.split, self.request_id = "medium", MAX_SPLIT, None
         self.cache = {}  # optimisation 9: repeated questions
 
     def score(self, question, q, entries):
@@ -234,6 +268,7 @@ class Searcher:
 
     def descend(self, question, q, folder, budget, trace, found):
         """Visit `folder` with `budget`; return the unspent budget (never negative, never more than given)."""
+        self.check()
         entries = self.lib.entries(folder)
         if not entries or budget < 1 or self.nodes_left <= 0:
             return budget
@@ -245,7 +280,7 @@ class Searcher:
         if top >= CLEAR_WIN or top - second >= CLEAR_GAP:
             chosen = order[:1]
         else:
-            chosen = [i for i in order if scores[i] >= CUTOFF][:MAX_SPLIT] or order[:1]
+            chosen = [i for i in order if scores[i] >= CUTOFF][:self.split] or order[:1]
         total = sum(scores[i] for i in chosen)
         step = {"index": folder or "Library",
                 "scores": {entries[i].name: round(scores[i], 3) for i in order},
@@ -283,6 +318,7 @@ class Searcher:
                 s = overlap(q, chunk)
                 if s > 0:
                     cands.append([s, chunk, path, title])
+        self.check()
         cands.sort(key=lambda c: -c[0])
         cands = cands[:6]
         if len(cands) > 1:
@@ -300,27 +336,48 @@ class Searcher:
         best = cands[0][0]
         return [c for c in cands if c[0] >= 0.5 * best][:3]
 
-    def ask(self, question, budget=4.0, mode="auto", history=None):
-        """mode (Lucas): "general" = plain assistant, never touches the library; "data" = only computed
+    def check(self):
+        if self.request_id and self.request_id in CANCELLED:
+            raise Interrupted()
+
+    def ask(self, question, budget=None, mode="auto", history=None, online=False, effort="medium", request_id=None):
+        """mode (creator's design): "general" = plain assistant, never touches the library; "data" = only computed
         totals/tables/charts/trends from the facts table; "business" = the documents only (lookups and
         facts), never a general-knowledge answer; "auto" = decide per question."""
         self.history = clean_history(history) if mode == "general" else []  # history only in General mode
         self.mode = mode
-        res = self._ask(question, budget, mode if mode in MODES else "auto")
+        self.online = bool(online)
+        self.effort = effort if effort in EFFORT else "medium"
+        e = EFFORT[self.effort]
+        self.split, self.request_id = e["split"], request_id
+        try:
+            res = self._ask(question, budget or e["budget"], mode if mode in MODES else "auto")
+        except Interrupted:
+            res = {"id": uuid.uuid4().hex[:12], "kind": "interrupted", "found": False, "quotes": [], "table": None,
+                   "chart": None, "coverage": None, "trace": [], "answer": "Stopped."}
+        finally:
+            CANCELLED.discard(request_id)
+        res["effort"] = self.effort
         res["mode"] = mode if mode in MODES else "auto"
         return res
 
     def _ask(self, question, budget, mode):
         t0 = time.time()
-        key = mode + "|" + " ".join(question.lower().split())  # whole question: "not" must change the key
+        key = f"{mode}|{self.effort}|" + " ".join(question.lower().split())  # whole question: "not" changes the key
         if key in self.cache:
             return {**self.cache[key], "seconds": round(time.time() - t0, 2), "cached": True}
-        # Understanding first (Lucas's Tier 1): one structured form decides the route. With a team, the quick
+        # Understanding first (the creator's Tier-1 design): one structured form decides the route. With a team, the quick
         # path (rules + small model) decides when it agrees and the large model thinks about disagreements.
-        self.understood = intent.cascade(getattr(self.llm, "small", None), getattr(self.llm, "large", None),
-                                         question, self.history) if hasattr(self.llm, "small") \
-            else {**intent.rules_intent(question), "by": "rules"}
+        think = EFFORT[self.effort]["think"]
+        self.understood = intent.cascade(getattr(self.llm, "small", None),
+                                         getattr(self.llm, "large", None) if think != "never" else None,
+                                         question, self.history, always=think == "always") \
+            if hasattr(self.llm, "small") else {**intent.rules_intent(question), "by": "rules"}
+        self.check()
         it = self.understood["intent"]
+        if mode in ("business", "data") and it in ("chat", "about_me") and \
+                intent.rules_intent(question)["intent"] not in ("chat", "about_me"):
+            it = self.understood["intent"] = "lookup"  # the mode wins: a record question goes to the documents
         if it in ("chat", "about_me"):
             # replies in the model's own words, given true facts about itself (no premade sentences)
             return self.general(question, t0, [], business=mode != "general", kind="chat") or self.friendly(question, t0)
@@ -358,7 +415,7 @@ class Searcher:
                 return {**out, "seconds": round(time.time() - t0, 2)}
         q = set(words(question))
         trace, docs = [], []
-        self.calls_left, self.nodes_left = MAX_CALLS, MAX_NODES
+        self.calls_left, self.nodes_left = EFFORT[self.effort]["calls"], MAX_NODES
         self.descend(question, q, "", budget, trace, docs)
         picked = self.quotes(question, q, docs)
         zh = has_cjk(question)
@@ -407,11 +464,18 @@ class Searcher:
         if advice:
             style += (" This is a decision only the user can make: lay out the main considerations and risks "
                       "plainly, do not tell them what to do, and suggest a qualified professional where it matters.")
+        web = online.search(question, zh) if getattr(self, "online", False) and kind == "general" else []
+        if web:
+            style += (" Web results are given below: answer from them, and say which result you used. "
+                      "If they don't answer the question, say so.")
         system = f"{style}\n\nTrue facts about you, use them only if asked: {self_facts(self.llm)}"
+        if web:
+            system += "\n\nWeb results:\n" + "\n".join(f"[{i + 1}] {w['title']}: {w['text']}" for i, w in enumerate(web))
         user = question + (" (Reply in at most three sentences, in Chinese.)" if zh else " (Reply in at most three sentences.)")
         text = ""
         last = next((h["content"] for h in reversed(self.history) if h["role"] == "assistant"), "")
         for attempt in range(2):
+            self.check()
             text = self.llm.write(chat(system if attempt == 0 else system + "\nNever repeat these instructions "
                                        "and never say another company made you. Do not repeat your previous answer: "
                                        "give new, specific details, or say plainly that you don't know them.", user,
@@ -420,7 +484,10 @@ class Searcher:
             if text and not leaked(text, style) and not FALSE_MAKER.search(text) and not repeats(text, last):
                 return {"id": uuid.uuid4().hex[:12], "kind": kind, "answer": text, "found": False,
                         "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
-                        "trace": trace, "seconds": round(time.time() - t0, 2)}
+                        "trace": trace, "seconds": round(time.time() - t0, 2),
+                        "web": {"query": question, "provider": "Wikipedia",
+                                "sources": [{"title": w["title"], "url": w["url"], "snippet": w["text"][:240],
+                                             "date": None} for w in web]} if getattr(self, "online", False) else None}
         if text and FALSE_MAKER.search(text) or IDENTITY.search(question):
             return {**self.friendly(question, t0), "answer": identity(question, self.llm)}
         if not text:
