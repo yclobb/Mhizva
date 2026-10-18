@@ -109,6 +109,16 @@ def main():
         check("type-first filing", {"Invoices", "Bills", "Contracts", "Quotes"} <= {e.name for e in lib.entries("")},
               str([e.name for e in lib.entries("")]))
 
+        # modes (Lucas): general never touches the library; data only computes; business never goes general
+        r = s.ask("When does the ute insurance renew?", mode="general")
+        check("general mode skips library", r["kind"] == "general" and not r["quotes"] and r["mode"] == "general", r["kind"])
+        r = s.ask("Timber Co", mode="data")
+        check("data mode lists facts", r["kind"] == "table" and r["table"] and r["mode"] == "data", r["answer"])
+        r = s.ask("What is the capital of France?", mode="business")
+        check("business mode never general", r["kind"] == "lookup" and not r.get("general"), r["kind"])
+        r = s.ask("i created you", mode="business")
+        check("chit-chat friendly reply", r["kind"] == "chat", r["answer"])
+
         r = s.ask("How much have we paid Timber Co in total?")
         check("duplicate bill counted once", r["kind"] == "aggregate", r["answer"])
         print("      ", r["answer"])

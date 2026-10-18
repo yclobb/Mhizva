@@ -116,10 +116,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with work:
                 if u.path == "/api/ask":
-                    q = (json.loads(body or b"{}").get("question") or "").strip()
+                    req = json.loads(body or b"{}")
+                    q = (req.get("question") or "").strip()
                     if not q:
                         return self.send(400, {"error": "empty question"})
-                    res = searcher.ask(q)
+                    res = searcher.ask(q, mode=req.get("mode") or "auto")
                     answers[res["id"]] = res  # kept for /api/export
                     while len(answers) > 200:
                         answers.pop(next(iter(answers)))

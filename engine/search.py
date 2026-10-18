@@ -24,6 +24,7 @@ MAX_CALLS = 12     # routing calls per question (index scoring); keywords only a
                    # Each answer adds at most one passage pick and one short write on top.
 MAX_NODES = 40     # folders visited per question
 COUNTRY = "Australia"  # where the business is; general answers assume it (becomes a setting later)
+MODES = ("auto", "general", "data", "business")
 
 
 def overlap(q, text):
@@ -54,6 +55,32 @@ def chunks(text):
 
 OWN_RECORDS = re.compile(r"\b(our|we|us|my|mine|company|business|staff|client|customer|supplier|invoice|"
                          r"quote|contract|policy|bill|receipt)s?\b|我们|我的|公司|员工|客户|供应商|发票|合同|账单", re.I)
+
+
+ASKING = re.compile(r"\?|？|^\s*(what|when|where|who|whom|whose|which|why|how|is|are|was|were|do|does|did|can|could|"
+                    r"should|will|would|list|show|chart|graph|plot|find|give|tell|total|sum|compare|explain|summari[sz]e)\b"
+                    r"|吗|什么|多少|几|哪|怎么|怎样|为什么|谁|列出|画|显示|告诉|解释|比较|总结", re.I)
+CHAT_REPLY = {"en": "Nice to meet you! I'm Mhizva. Ask me anything about your documents, like totals, "
+                    "due dates or trends, and I'll show you where the answer came from.",
+              "zh": "很高兴认识你！我是 Mhizva。你可以问我关于你文件的任何问题，比如合计、到期日或趋势，我会告诉你答案出自哪里。"}
+
+
+CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|cheers|bye|goodbye|good (morning|afternoon|evening|night)|"
+                  r"ok|okay|cool|nice|great|lol)\b|\b(i|we)\s+(created|made|built|love|like|hate)\s+you\b|"
+                  r"\byou('re| are)\b|你好|您好|谢谢|再见|我(创造|做|造)了你|你是", re.I)
+
+
+def chit_chat(question):
+    """Greetings, thanks and remarks about Mhizva ('i created you') are not questions: answer with a fixed
+    friendly reply instead of handing a small model nothing to do (it tends to recite its instructions).
+    Keyword searches without a question mark ('Smith contract price') still search."""
+    return bool(CHAT.search(question)) and not ASKING.search(question.strip())
+
+
+def leaked(answer, instructions):
+    """True when a general answer mostly repeats its hidden instructions."""
+    a, i = set(words(answer)), set(words(instructions))
+    return bool(a) and len(a & i) / len(a) > 0.5
 
 
 def grounded(answer, question, quotes):
@@ -186,12 +213,33 @@ class Searcher:
         best = cands[0][0]
         return [c for c in cands if c[0] >= 0.5 * best][:3]
 
-    def ask(self, question, budget=4.0):
+    def ask(self, question, budget=4.0, mode="auto"):
+        """mode (Lucas): "general" = plain assistant, never touches the library; "data" = only computed
+        totals/tables/charts/trends from the facts table; "business" = the documents only (lookups and
+        facts), never a general-knowledge answer; "auto" = decide per question."""
+        res = self._ask(question, budget, mode if mode in MODES else "auto")
+        res["mode"] = mode if mode in MODES else "auto"
+        return res
+
+    def _ask(self, question, budget, mode):
         t0 = time.time()
-        key = " ".join(question.lower().split())  # whole question: "not" must change the key
+        key = mode + "|" + " ".join(question.lower().split())  # whole question: "not" must change the key
         if key in self.cache:
             return {**self.cache[key], "seconds": round(time.time() - t0, 2), "cached": True}
+        if chit_chat(question):
+            return self.friendly(question, t0)
+        if mode == "general":
+            return self.general(question, t0, [], business=False) or self.friendly(question, t0)
         kind = facts.question_kind(question)
+        if mode == "data" and kind == "lookup":
+            kind = "table"  # data mode never writes free text: a plain question lists the matching facts
+        if mode == "data":
+            res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind)
+            if not res:
+                zh = has_cjk(question)
+                return {"id": uuid.uuid4().hex[:12], "kind": kind, "found": False, "quotes": [], "table": None,
+                        "chart": None, "coverage": None, "trace": [], "seconds": round(time.time() - t0, 2),
+                        "answer": "没有找到相关的数字或日期。" if zh else "I couldn't find matching numbers or dates."}
         if kind != "lookup":
             res = facts.answer(facts.FactStore(self.lib.root).all(), question, kind)
             if res:  # cross-document question answered from the facts table; otherwise fall through
@@ -225,25 +273,42 @@ class Searcher:
             if text and "NOT_FOUND" not in text and grounded(text, question, listing):
                 answer, found = text, True
         kind = "lookup"
-        if not found and general_question(question):
-            # Lucas: everyday/general questions get a general answer, clearly labelled. It is never
-            # filed, cached or turned into facts, so it can't overwrite what the documents say.
-            text = self.llm.write(chat(
-                f"You are Mhizva, a helpful assistant for a small business in {COUNTRY}. Answer general questions briefly "
-                "from general knowledge. If it depends on the business's own records, say you couldn't find it "
-                "in their documents.",
-                f"Question: {question}\nAnswer in at most three sentences" + (", in Chinese." if zh else ".")),
-                n=120, stop=["<|eot_id|>"])
-            if text:
-                return {"id": uuid.uuid4().hex[:12], "kind": "general", "answer": text, "found": False,
-                        "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
-                        "trace": trace, "seconds": round(time.time() - t0, 2)}
+        if not found and mode == "auto" and general_question(question):
+            res = self.general(question, t0, trace, business=True)
+            if res:
+                return res
         out = {"id": uuid.uuid4().hex[:12], "kind": kind, "answer": answer, "found": found,
                "quotes": [{"text": c[1], "path": c[2], "title": c[3]} for c in picked] if found else [],
                "table": None, "chart": None, "coverage": None, "trace": trace}
         if found:
             self.cache[key] = out
         return {**out, "seconds": round(time.time() - t0, 2)}
+
+    def general(self, question, t0, trace, business):
+        """A general-knowledge answer, clearly labelled. Never filed, cached or turned into facts, so it
+        can't overwrite what the documents say. business=False (general mode) uses a neutral assistant
+        with no business framing."""
+        zh = has_cjk(question)
+        instructions = (f"You are Mhizva, a helpful assistant for a small business in {COUNTRY}. Answer general "
+                        "questions briefly from general knowledge. If it depends on the business's own records, "
+                        "say you couldn't find it in their documents." if business else
+                        "You are a helpful, friendly assistant. Answer clearly and briefly.")
+        text = self.llm.write(chat(
+            instructions,
+            f"Question: {question}\nAnswer in at most three sentences" + (", in Chinese." if zh else ".")),
+            n=160, stop=["<|eot_id|>"])
+        if not text:
+            return None
+        if leaked(text, instructions):
+            return self.friendly(question, t0)
+        return {"id": uuid.uuid4().hex[:12], "kind": "general", "answer": text, "found": False,
+                "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
+                "trace": trace, "seconds": round(time.time() - t0, 2)}
+
+    def friendly(self, question, t0):
+        return {"id": uuid.uuid4().hex[:12], "kind": "chat", "answer": CHAT_REPLY["zh" if has_cjk(question) else "en"],
+                "found": False, "quotes": [], "table": None, "chart": None, "coverage": None, "trace": [],
+                "seconds": round(time.time() - t0, 2)}
 
     def forget(self):
         self.cache.clear()

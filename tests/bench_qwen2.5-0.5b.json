@@ -1,0 +1,91 @@
+{
+ "setup": "qwen2.5-0.5b",
+ "load_s": 1.6,
+ "upload_s_per_doc": 8.1,
+ "accuracy": "10/11",
+ "answer_s_avg": 1.8,
+ "answer_s_max": 7.0,
+ "ram_mb": [
+  740
+ ],
+ "escalations": null,
+ "questions": [
+  {
+   "q": "When does the ute insurance renew?",
+   "ok": true,
+   "s": 1.3,
+   "kind": "lookup",
+   "answer": "1 July 2026"
+  },
+  {
+   "q": "Who is the insurer for the ute?",
+   "ok": true,
+   "s": 4.4,
+   "kind": "lookup",
+   "answer": "AAMI is the insurer for the ute."
+  },
+  {
+   "q": "How much is the Smith contract?",
+   "ok": true,
+   "s": 1.4,
+   "kind": "lookup",
+   "answer": "John Smith's contract is $42,000."
+  },
+  {
+   "q": "How much annual leave do staff get?",
+   "ok": true,
+   "s": 0.8,
+   "kind": "lookup",
+   "answer": "4 weeks"
+  },
+  {
+   "q": "What did we quote Sarah Jones for the bathroom?",
+   "ok": true,
+   "s": 1.2,
+   "kind": "lookup",
+   "answer": "We quoted Sarah Jones for the bathroom renovation at 12 Hill St."
+  },
+  {
+   "q": "When is the Lee Cafe invoice due?",
+   "ok": false,
+   "s": 7.0,
+   "kind": "lookup",
+   "answer": "I couldn't find that in your documents."
+  },
+  {
+   "q": "员工年假有几天？",
+   "ok": true,
+   "s": 1.5,
+   "kind": "lookup",
+   "answer": "15天"
+  },
+  {
+   "q": "How much is owed on invoices in total?",
+   "ok": true,
+   "s": 0.0,
+   "kind": "aggregate",
+   "answer": "Total: $20,250 across 3 documents. Other currencies left out: 2 CNY."
+  },
+  {
+   "q": "Which suppliers are increasing their prices?",
+   "ok": true,
+   "s": 0.0,
+   "kind": "trend",
+   "answer": "Rising: Timber Co, Spark Electrical. Based on 3 parties with at least two months of dated amounts."
+  },
+  {
+   "q": "发票一共要收多少钱？",
+   "ok": true,
+   "s": 0.0,
+   "kind": "aggregate",
+   "answer": "合计：¥11,700，共 2 份文件。"
+  },
+  {
+   "q": "What is our office wifi password?",
+   "ok": true,
+   "s": 1.9,
+   "kind": "lookup",
+   "answer": "I couldn't find that in your documents."
+  }
+ ]
+}
