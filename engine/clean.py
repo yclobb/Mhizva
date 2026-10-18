@@ -175,7 +175,7 @@ def pretty(name):
     raw = re.sub(r"^the\s+", "", raw, flags=re.I).strip()
     if raw.isupper() or raw.islower():  # "NOTION", "stripe" -> "Notion", "Stripe"
         return " ".join(w.capitalize() for w in k.split())
-    return re.sub(SUFFIXES, "", raw, flags=re.I).strip(" .,") or raw
+    return raw.strip(" .,") or raw  # matching ignores suffixes; the displayed name keeps them ("Timber Co")
 
 
 COUNTRIES = {"united states": ["us", "usa", "u.s.", "u.s.a.", "united states of america", "america", "美国"],

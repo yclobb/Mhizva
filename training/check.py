@@ -22,8 +22,9 @@ sys.path.insert(0, os.path.dirname(HERE))
 from engine.intent import INTENTS, PERIODS, STATUSES  # noqa: E402
 
 DIRECTIONS = {"in", "out", "net", "none"}
-FILTER_KEYS = {"period", "date_field", "status", "days_overdue", "amount", "category", "party", "ref"}
-PERIOD_RE = re.compile(r"(" + "|".join(p for p in PERIODS if p) + r"|\d{4}-q[1-4]|\d{4}-\d{2}|this_year-q[1-4])", re.I)
+FILTER_KEYS = {"period", "date_field", "status", "days_overdue", "amount", "category", "party", "ref", "currency"}
+PERIOD_RE = re.compile(r"(" + "|".join(p for p in PERIODS if p) + r"|next_week|\d{4}-q[1-4]|\d{4}-\d{2}|this_year-q[1-4]"
+                       r"|fy\d{2,4}|bas-?q[1-4](\s*fy\d{4})?)", re.I)
 MONEY_INTENTS = {"total", "count", "list", "rank", "compare", "chart", "trend"}
 
 

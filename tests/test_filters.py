@@ -44,6 +44,12 @@ def main():
     check("window this_month", filters.window("this_month", dt.date(2026, 10, 18)) == ("2026-10-01", "2026-10-31"))
     check("window last_quarter", filters.window("last_quarter", dt.date(2026, 2, 1)) == ("2025-10-01", "2025-12-31"))
     check("window 2026-Q2", filters.window("2026-Q2") == ("2026-04-01", "2026-06-30"))
+    sun = dt.date(2026, 10, 18)  # the B1 spec's "today" (a Sunday)
+    check("FY2026", filters.window("FY2026", sun) == ("2025-07-01", "2026-06-30"))
+    check("BAS-Q1 of current FY", filters.window("BAS-Q1", sun) == ("2026-07-01", "2026-09-30"))
+    check("BAS-Q3 FY2026", filters.window("BAS-Q3 FY2026", sun) == ("2026-01-01", "2026-03-31"))
+    check("due this week = next 7 days", filters.window("this_week", sun, "due") == ("2026-10-18", "2026-10-25"))
+    check("past this week = calendar week", filters.window("this_week", sun) == ("2026-10-12", "2026-10-18"))
     root = tempfile.mkdtemp(prefix="mhizva_f_")
     try:
         lib = Library(root)
@@ -60,7 +66,7 @@ def main():
         names = [x[1] for x in r[1]["rows"]] if r else []
         check("days overdue > 30", names == ["Smith Family"], str(names))
         r = ask("bills due this week", "table", {"direction": "out", "filters": {"period": "this_week", "date_field": "due"}})
-        wk = filters.window("this_week")
+        wk = filters.window("this_week", None, "due")  # due dates: the next 7 days
         want = sorted(n for n, due in (("Timber Co", D(1)), ("Pipe World", D(-2))) if wk[0] <= due <= wk[1])
         names = sorted(x[1] for x in r[1]["rows"]) if r else []
         check("due-date period", names == want, f"{names} want {want}")

@@ -19,12 +19,38 @@ PAID = re.compile(r"\b(paid|settled|received|complete|closed)\b", re.I)
 NOT_PAID = re.compile(r"\b(unpaid|outstanding|open|due|pending|overdue|not paid|partially|partly)\b", re.I)
 
 
-def window(period, today=None):
-    """(start, end) ISO dates for a period token, or None."""
+def fy_start(day):
+    """Start year of the Australian financial year (1 Jul - 30 Jun) containing `day`."""
+    return day.year if day.month >= 7 else day.year - 1
+
+
+def window(period, today=None, date_field=None):
+    """(start, end) ISO dates for a period token, or None.
+
+    Global spec rules: Australian financial year, 1 Jul - 30 Jun. "FY2026" = 1 Jul 2025 - 30 Jun 2026.
+    "BAS-Q1".."BAS-Q4" are quarters of the current financial year (Q1 = Jul-Sep); "BAS-Q1 FY2027" names one.
+    For DUE dates, "this_week" / "next_week" look forward (the next 7 days / the 7 after), because that is
+    what an owner means by "due this week" on any day; for other dates they are calendar weeks (Mon-Sun)."""
     today = today or dt.date.today()
-    p = (period or "").strip().lower()
+    p = (period or "").strip().lower().replace(" ", "")
     if not p:
         return None
+    if date_field == "due" and p in ("this_week", "next_week", "last_week"):
+        a = {"this_week": today, "next_week": today + dt.timedelta(days=8),
+             "last_week": today - dt.timedelta(days=14)}[p]
+        return a.isoformat(), (a + dt.timedelta(days=7)).isoformat()
+    m = re.fullmatch(r"fy(\d{2}|\d{4})", p)
+    if m:
+        y = int(m.group(1)) + (2000 if len(m.group(1)) == 2 else 0)
+        return f"{y - 1}-07-01", f"{y}-06-30"
+    m = re.fullmatch(r"bas-?q([1-4])(?:fy(\d{4}))?", p)
+    if m:
+        fy0 = int(m.group(2)) - 1 if m.group(2) else fy_start(today)
+        q = int(m.group(1))
+        y, mo = (fy0, 7 + 3 * (q - 1)) if q <= 2 else (fy0 + 1, 1 + 3 * (q - 3))
+        end = dt.date(y + (mo + 2 > 12), (mo + 2 - 1) % 12 + 1, 1)
+        end = dt.date(end.year + (end.month == 12), end.month % 12 + 1, 1) - dt.timedelta(days=1)
+        return dt.date(y, mo, 1).isoformat(), end.isoformat()
 
     def month(y, m):
         end = dt.date(y + (m == 12), m % 12 + 1, 1) - dt.timedelta(days=1)
@@ -103,11 +129,12 @@ def apply(rows, filters, today=None):
     f = filters or {}
     out = list(rows)
     period = f.get("period")
+    field = f.get("date_field")
     if isinstance(period, list):  # compare across two periods: keep rows in either (split later by compare)
-        wins = [w for w in (window(p, today) for p in period) if w]
+        wins = [w for w in (window(p, today, field) for p in period) if w]
         win = (min(w[0] for w in wins), max(w[1] for w in wins)) if wins else None
     else:
-        win = window(period, today)
+        win = window(period, today, field)
     if win:
         field = f.get("date_field") or "issued"
         out = [r for r in out if (d := record_date(r, field)) and win[0] <= d <= win[1]]
@@ -129,6 +156,9 @@ def apply(rows, filters, today=None):
             out = [r for r in out if not is_paid(r) and (d := record_date(r, "due")) and d < cutoff]
     if f.get("amount"):
         out = [r for r in out if compare_number(r.get("amount"), f["amount"])]
+    if f.get("currency"):  # amounts in other currencies are never mixed in
+        want = f["currency"].upper()
+        out = [r for r in out if r.get("amount") is None or (r.get("currency") or "AUD").upper() == want]
     if f.get("ref"):  # a named document number (INV-1043)
         ref = f["ref"].lower()
         out = [r for r in out if ref in (r.get("ref") or "").lower() or ref in r.get("text", "").lower()]
