@@ -113,8 +113,8 @@ COMPARE = re.compile(r"\b(limitation|limits|weakness|compared?|vs\.?|versus|outp
 
 
 FALSE_MAKER = re.compile(r"\b(created|made|developed|trained|built|designed)\s+by\s+(anthropic|openai|google|"
-                         r"deepmind|meta|microsoft|alibaba)|\bi\s*(am|'m)\s+(chatgpt|claude|gpt|gemini|qwen|llama)\b|"
-                         r"由(Anthropic|OpenAI|谷歌|阿里)", re.I)
+                         r"deepmind|meta|microsoft)|\bi\s*(am|'m)\s+(chatgpt|claude|gpt|gemini|llama)\b|"
+                         r"由(Anthropic|OpenAI|谷歌)", re.I)  # "made by Alibaba" / Qwen is true, so not blocked
 
 
 def self_facts(llm):
