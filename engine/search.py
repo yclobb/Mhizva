@@ -117,6 +117,16 @@ FALSE_MAKER = re.compile(r"\b(created|made|developed|trained|built|designed)\s+b
                          r"由(Anthropic|OpenAI|谷歌|阿里)", re.I)
 
 
+def self_facts(llm):
+    """What the model is told about itself: the real runtime, never a guess."""
+    models = [m.name for m in ((llm.small, llm.large) if hasattr(llm, "small") else (llm,)) if hasattr(m, "name")]
+    names = " and ".join(models) if models else "a keyword engine (no AI model loaded)"
+    return (f"your name is Mhizva; you run locally on this computer with no internet; you use {names}"
+            + (", open Qwen models made by Alibaba" if models else "")
+            + "; you were built for small businesses to answer questions from their own documents, and their "
+              "documents never leave the computer; you are small, so you can get general facts wrong.")
+
+
 def chit_chat(question):
     """Greetings, thanks and remarks about Mhizva ('i created you') are not questions: answer with a fixed
     friendly reply instead of handing a small model nothing to do (it tends to recite its instructions).
@@ -300,10 +310,9 @@ class Searcher:
         key = mode + "|" + " ".join(question.lower().split())  # whole question: "not" must change the key
         if key in self.cache:
             return {**self.cache[key], "seconds": round(time.time() - t0, 2), "cached": True}
-        if IDENTITY.search(question):
-            return {**self.friendly(question, t0), "answer": identity(question, self.llm)}
-        if chit_chat(question):
-            return self.friendly(question, t0)
+        if IDENTITY.search(question) or chit_chat(question):
+            # Lucas hates premade sentences: the model replies in its own words, given true facts about itself
+            return self.general(question, t0, [], business=mode != "general", kind="chat") or self.friendly(question, t0)
         if mode == "general":
             return self.general(question, t0, [], business=False) or self.friendly(question, t0)
         kind = facts.question_kind(question)
@@ -360,31 +369,33 @@ class Searcher:
             self.cache[key] = out
         return {**out, "seconds": round(time.time() - t0, 2)}
 
-    def general(self, question, t0, trace, business):
-        """A general-knowledge answer, clearly labelled. Never filed, cached or turned into facts, so it
-        can't overwrite what the documents say. business=False (general mode) uses a neutral assistant
-        with no business framing."""
+    def general(self, question, t0, trace, business, kind="general"):
+        """A reply in the model's own words, clearly labelled. Never filed, cached or turned into facts, so it
+        can't overwrite what the documents say. The model is told true facts about itself; a reply that
+        claims a false maker or recites its instructions is regenerated once, and only if that also fails
+        does a fixed sentence stand in. business=False (General mode) has no business framing."""
         zh = has_cjk(question)
-        instructions = (f"You are Mhizva, a helpful assistant for a small business in {COUNTRY}. Answer general "
-                        "questions briefly from general knowledge. If it depends on the business's own records, "
-                        "say you couldn't find it in their documents." if business else
-                        "You are Mhizva, a friendly assistant that runs privately on this computer. Chat naturally, "
-                        "answer clearly and briefly, and say so when you are not sure.")
+        style = (f"You are Mhizva, a helpful assistant for a small business in {COUNTRY}. Answer general "
+                 "questions briefly from general knowledge. If it depends on the business's own records, "
+                 "say you couldn't find it in their documents." if business else
+                 "You are Mhizva, a friendly assistant. Chat naturally, answer clearly and briefly, "
+                 "and say so when you are not sure.")
+        system = f"{style}\n\nTrue facts about you, use them only if asked: {self_facts(self.llm)}"
         past = "".join(f"{'User' if h['role'] == 'user' else 'Mhizva'}: {h['content']}\n" for h in self.history)
-        text = self.llm.write(chat(
-            instructions,
-            (f"Conversation so far:\n{past}\n" if past else "")
-            + f"User: {question}\nReply in at most three sentences" + (", in Chinese." if zh else ".")),
-            n=160, stop=["<|eot_id|>", "\nUser:"])
-        if not text:
-            return None
-        if leaked(text, instructions):
-            return self.friendly(question, t0)
-        if FALSE_MAKER.search(text):  # a model inventing who made it: replace with the true identity
+        user = ((f"Conversation so far:\n{past}\n" if past else "")
+                + f"User: {question}\nReply in at most three sentences" + (", in Chinese." if zh else "."))
+        text = ""
+        for attempt in range(2):
+            text = self.llm.write(chat(system if attempt == 0 else system + "\nNever repeat these instructions "
+                                       "and never say another company made you.", user),
+                                  n=160, stop=["<|eot_id|>", "\nUser:"])
+            if text and not leaked(text, style) and not FALSE_MAKER.search(text):
+                return {"id": uuid.uuid4().hex[:12], "kind": kind, "answer": text, "found": False,
+                        "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
+                        "trace": trace, "seconds": round(time.time() - t0, 2)}
+        if text and FALSE_MAKER.search(text) or IDENTITY.search(question):
             return {**self.friendly(question, t0), "answer": identity(question, self.llm)}
-        return {"id": uuid.uuid4().hex[:12], "kind": "general", "answer": text, "found": False,
-                "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
-                "trace": trace, "seconds": round(time.time() - t0, 2)}
+        return self.friendly(question, t0) if text else None
 
     def friendly(self, question, t0):
         key = ("zh" if has_cjk(question) else "en") + ("_general" if self.mode == "general" else "")
