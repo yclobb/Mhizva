@@ -195,7 +195,7 @@ def question_kind(question):
         return "trend"
     if re.search(r"\b(chart|graph|plot|visuali[sz]e)\b|图表|画图|柱状图|折线图|图", q):
         return "chart"
-    if re.search(r"\b(table|spreadsheet|excel|list (all|every|each)|list the|show (all|every))\b"
+    if re.search(r"\b(table|spreadsheet|excel|list|show (all|every|me all))\b"
                  r"|表格|电子表格|列出|清单|列表|所有", q):
         return "table"
     if re.search(r"\b(total|sum|altogether|in all|combined|average|how many|add up|overall)\b"
@@ -288,13 +288,19 @@ def select(rows, question):
     q = subject_words(question)
     win = date_window(question)
     out = []
+    scored = []
     for r in rows:
-        hay = set(words(f"{r['title']} {r['party']} {r['kind']} {r['label']} {r['text']}"))
-        if q and not (q & hay):
-            continue
         if win and not (r["date"] and win[0] <= r["date"] <= win[1]):
             continue
-        out.append(r)
+        # spreadsheet rows: every column value counts (Status: Unpaid), not just the shortened text
+        hay = set(words(f"{r['title']} {r['party']} {r['kind']} {r['label']} {r['text']} " + " ".join(r.get("fields", {}).values())))
+        scored.append((len(q & hay), r))
+    # Keep the rows that meet the most subject words: in a spreadsheet every row says "invoice", so
+    # "written off invoices" must match both, not either.
+    best = max((n for n, _ in scored), default=0)
+    out = [r for n, r in scored if n == best] if q else [r for _, r in scored]
+    if q and best == 0:
+        out = []
     want_money = bool(re.search(r"\b(how much|total|sum|cost|price|owe|pay|spend|spent|worth)|\$"
                                 r"|多少钱|金额|总额|费用|价格|成本|付|欠|元|¥|￥", question.lower()))
     way = money_direction(question)
@@ -319,15 +325,20 @@ def dedupe(rows):
     """Count each record once. Across documents, rows with the same party, label, amount and date
     (an invoice and its copy or reminder), or the same reference number and amount, are one record.
     Merged rows are marked so coverage can report them."""
-    seen, out = set(), Rows()
+    seen, refs, out = set(), {}, Rows()
     for r in rows:
-        keys = [("same", r["party"].lower(), r["label"].lower(), r["amount"], r["date"])]
-        if r.get("ref") and r["amount"] is not None:
-            keys.append(("ref", r["ref"], r["amount"]))
-        if any(k in seen for k in keys):
+        same = ("same", r["party"].lower(), r["label"].lower(), r["amount"], r["date"])
+        ref_key = ("ref", r.get("ref"), r["amount"]) if r.get("ref") and r["amount"] is not None else None
+        # two different reference numbers (INV-10001 vs INV-10002) are never the same record,
+        # but a copy without a number still matches one with a number
+        same_hit = same in seen and not (r.get("ref") and refs.get(same) and r["ref"] not in refs[same])
+        if same_hit or (ref_key and ref_key in seen):
             out.merged += 1
             continue
-        seen.update(keys)
+        seen.add(same)
+        refs.setdefault(same, set()).update([r["ref"]] if r.get("ref") else [])
+        if ref_key:
+            seen.add(ref_key)
         out.append(r)
     return out
 
@@ -337,16 +348,35 @@ class Rows(list):
     merged = 0
 
 
-def best_per_doc(rows):
-    """For totals: one amount per document, preferring a row labelled total/price/premium, else the largest."""
+def best_per_doc(rows, question=""):
+    """For totals: one amount per record (a document, or one spreadsheet row). Prefers the amount whose
+    label the question names ("total tax" -> the Tax column), then one labelled total/price/premium,
+    then the largest."""
+    asked = set(words(question)) - set(words("total sum amount how much all"))
     pick = {}
     for r in rows:
         if r["amount"] is None:
             continue
-        score = (bool(re.search(r"total|price|premium|amount due|balance|owing", r["label"].lower())), r["amount"])
-        if r["doc"] not in pick or score > pick[r["doc"]][0]:
-            pick[r["doc"]] = (score, r)
+        label = r["label"].lower()
+        score = (bool(asked & set(words(label))),
+                 bool(re.search(r"total|price|premium|amount due|balance|owing", label)), r["amount"])
+        key = r.get("record") or r["doc"]
+        if key not in pick or score > pick[key][0]:
+            pick[key] = (score, r)
     return [v[1] for v in pick.values()]
+
+
+def group_field(rows, question):
+    """A column the question groups by ('by vendor', 'per status', 'for each debtor'), if rows have fields."""
+    names = {k for r in rows for k in r.get("fields", {})}
+    m = re.search(r"\b(?:by|per|for each|each|across|which)\s+([a-z][a-z ]{1,30})", question.lower())
+    if not m or not names:
+        return None
+    want = set(words(m.group(1)))
+    # "by debtor" -> Debtor Company, not Debtor Address / Debtor Tax ID
+    hits = [n for n in names if want & set(words(n))]
+    hits.sort(key=lambda n: (bool(re.search(r"address|tax|\bid\b|phone|email|number", n, re.I)), len(n)))
+    return hits[0] if hits else None
 
 
 def money(v, currency="AUD"):
@@ -376,7 +406,7 @@ T = {
            "rising": "rising", "falling": "falling", "flat": "flat",
            "chart": "Here's a {type} chart from {docs}.", "bar": "bar", "line": "line",
            "table": "I found {items} in {docs}.", "total": "Total: {value} across {docs}.",
-           "average": "Average: {value} across {docs}.", "match": "{docs} match.",
+           "average": "Average: {value} across {docs}.", "match": "Matching: {docs}.",
            "trend": "{Word}: {first} in {m1} to {last} in {m2} ({pct}), over {months} and {docs}.",
            "rising_who": "Rising: {names}.", "none_rising": "Nothing is clearly rising.",
            "based": " Based on {n} with at least two months of dated amounts.",
@@ -407,6 +437,10 @@ def columns(zh, currency):
             {"name": t["Date"], "type": "date"}]
 
 
+def doc_name(r):
+    return f"{r['title']} · row {r['row']}" if r.get("row") else r["title"]
+
+
 def table_of(rows, zh=False):
     """Typed table. rows[i] = raw values (money = number in the column's currency, date = 'YYYY-MM-DD',
     missing = null); text[i] = the same row formatted for display; sources[i] = where row i came from
@@ -416,8 +450,8 @@ def table_of(rows, zh=False):
     currencies = {cur(r) for r in rows if r["amount"] is not None}
     currency = currencies.pop() if len(currencies) == 1 else ("mixed" if currencies else "AUD")
     return {"columns": columns(zh, currency),
-            "rows": [[r["title"], r["party"], r["label"], r["amount"], r["date"]] for r in rows],
-            "text": [[r["title"], r["party"], r["label"], money(r["amount"], cur(r)) if r["amount"] is not None else "",
+            "rows": [[doc_name(r), r["party"], r["label"], r["amount"], r["date"]] for r in rows],
+            "text": [[doc_name(r), r["party"], r["label"], money(r["amount"], cur(r)) if r["amount"] is not None else "",
                       nice_date(r["date"], zh) if r["date"] else ""] for r in rows],
             "sources": [[{"path": r["doc"], "quote": r["text"]}] for r in rows]}
 
@@ -485,7 +519,7 @@ def direction(series):
 
 def trend(picked, question, zh=False):
     t = T["zh" if zh else "en"]
-    money_rows = [r for r in picked if r["amount"] is not None and r["date"]]
+    money_rows = regroup([r for r in picked if r["amount"] is not None and r["date"]], question)
     currency = cur(money_rows[0]) if money_rows else "AUD"
     if re.search(WHO, question.lower()):
         # per party: who is rising / falling, from parties with at least two dated months
@@ -570,32 +604,56 @@ def answer(rows, question, kind):
                                                picked.merged, excluded)
 
 
+def units(rows, zh=False):
+    """'3 documents', or '100 rows' when the facts come from spreadsheet rows."""
+    if any(r.get("row") for r in rows):
+        return count(len({r.get("record") or r["doc"] for r in rows}), "row", zh, "行")
+    return count(len({r["doc"] for r in rows}), "document", zh)
+
+
+def picked_for(table, picked):
+    paths = {s[0]["path"] for s in table["sources"]}
+    return [r for r in picked if r["doc"] in paths]
+
+
+def regroup(rows, question):
+    """Group by the column the question names ('by vendor'): that column's value becomes the row's party."""
+    field = group_field(rows, question)
+    if not field:
+        return rows
+    return [{**r, "party": r.get("fields", {}).get(field) or r["party"]} for r in rows]
+
+
 def answer_basic(picked, question, kind, zh=False):
     t = T["zh" if zh else "en"]
     if kind == "chart":
         money_rows = [r for r in picked if r["amount"] is not None]
         over_time = re.search(OVER_TIME, question.lower())
-        table = table_of(money_rows if over_time else best_per_doc(picked), zh)
+        table = table_of(regroup(money_rows if over_time else best_per_doc(picked, question), question), zh)
         chart = chart_of(table, question, zh)
         if not chart["points"]:
             return None
-        docs = len({s[0]["path"] for s in table["sources"]})
-        return t["chart"].format(type=t[chart["type"]], docs=count(docs, "document", zh)), table, chart
+        return t["chart"].format(type=t[chart["type"]], docs=units(picked_for(table, picked), zh)), table, chart
     if kind == "table":
-        table = table_of(picked, zh)
-        docs = len({r["doc"] for r in picked})
-        return t["table"].format(items=count(len(picked), "matching item", zh, "项"),
-                                 docs=count(docs, "document", zh)), table, None
-    per_doc = best_per_doc(picked)
+        # spreadsheet rows list once each (their main amount); documents list every amount they state
+        listed = best_per_doc(picked, question) + [r for r in picked if r["amount"] is None] \
+            if any(r.get("row") for r in picked) else picked
+        table = table_of(listed, zh)
+        return t["table"].format(items=count(len(listed), "matching item", zh, "项"),
+                                 docs=units(listed, zh)), table, None
+    per_doc = regroup(best_per_doc(picked, question), question)
     if per_doc and not re.search(r"\bhow many\b|几个|多少个|多少份", question.lower()):
         avg = "average" in question.lower() or "平均" in question
         total = sum(r["amount"] for r in per_doc)
         value = total / len(per_doc) if avg else total
-        return (t["average" if avg else "total"].format(value=money(value, cur(per_doc[0])),
-                                                         docs=count(len(per_doc), "document", zh)),
-                table_of(per_doc, zh), None)
-    docs = len({r["doc"] for r in picked})
-    return t["match"].format(docs=count(docs, "document", zh)), table_of(picked, zh), None
+        table = table_of(per_doc, zh)
+        # "total tax by vendor": the total plus a bar per group
+        chart = chart_of(table, question, zh) if group_field(per_doc, question) or re.search(r"\bby\b|按", question) else None
+        return (t["average" if avg else "total"].format(value=money(value, cur(per_doc[0])), docs=units(per_doc, zh)),
+                table, chart if chart and len(chart["points"]) > 1 else None)
+    # "how many": count records (one per document or spreadsheet row), not every amount in them
+    per = best_per_doc(picked, question) or picked
+    return t["match"].format(docs=units(per, zh)), table_of(per, zh), None
 
 
 # ---- spreadsheet export (standard library only)

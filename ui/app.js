@@ -2,8 +2,12 @@
 const $ = id => document.getElementById(id);
 const t = (...args) => window.MhizvaI18n.t(...args);
 const completedAnswers = [];
+// General conversation stays in this page's memory; never include other modes.
+const generalTurns = [];
 const typeFolderLabels = new Map(['Invoices','Quotes','Bills','Receipts','Contracts','Insurance','Policies','Reports','Other'].map(name=>[name,'folder'+name]));
-const state = {ready:false, asking:false, uploading:false, docRequest:0, docCount:0};
+let selectedMode='general';
+try{const saved=localStorage.getItem('mhizva-mode');if(['general','data','business'].includes(saved))selectedMode=saved;}catch{}
+const state = {ready:false, asking:false, uploading:false, docRequest:0, docCount:0, mode:selectedMode};
 const make = (tag, className, text) => { const el=document.createElement(tag); if(className) el.className=className; if(text!==undefined) el.textContent=text; return el; };
 async function api(url, options={}) {
   const response=await fetch(url, options);
@@ -12,12 +16,26 @@ async function api(url, options={}) {
   return data;
 }
 function updateSend() { $('send').disabled=!state.ready || state.asking || state.uploading || !$('question').value.trim(); }
+function modeKey(mode,suffix='') {return 'mode'+mode[0].toUpperCase()+mode.slice(1)+suffix;}
 function updateWelcome() {
-  const hasDocs=state.docCount>0;
-  $('welcome-description').replaceChildren(
-    document.createTextNode(hasDocs ? t('welcomeReady') : t('welcomeEmpty')),
-    make('br'),document.createTextNode(t('welcomeHelp')));
-  $('welcome-hint').textContent=hasDocs ? t('hintReady') : t('hintEmpty');
+  $('welcome-title').textContent=t(modeKey(state.mode));
+  $('welcome-description').textContent=t(modeKey(state.mode,'Welcome'));
+  $('welcome-hint').textContent=state.mode==='general'?t('modeGeneralNote'):(state.docCount?t('documentCount',{count:state.docCount}):t('hintEmpty'));
+  $('mode-note').textContent=t(modeKey(state.mode,'Note'));
+  $('question').placeholder=t(modeKey(state.mode,'Placeholder'));
+}
+function getThread(mode) {
+  let thread=document.querySelector('[data-thread="'+mode+'"]');
+  if(!thread){thread=make('div','mode-thread');thread.dataset.thread=mode;thread.hidden=mode!==state.mode;$('messages').append(thread);}
+  return thread;
+}
+function switchMode(mode) {
+  if(!['general','data','business'].includes(mode))return;
+  state.mode=mode;try{localStorage.setItem('mhizva-mode',mode);}catch{}
+  document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===mode)));
+  document.querySelectorAll('[data-thread]').forEach(thread=>thread.hidden=thread.dataset.thread!==mode);
+  $('welcome').hidden=getThread(mode).children.length>0;
+  updateWelcome();refreshStatus();$('question').focus();scrollToLatest();
 }
 async function refreshStatus() {
   try {
@@ -29,7 +47,7 @@ async function refreshStatus() {
     $('demo-notice').hidden=!['stand-in','fake','demo'].includes(data.mode);
     $('doc-count').textContent=Number.isFinite(data.docs)?String(data.docs):'—';
     if(Number.isFinite(data.docs)){state.docCount=data.docs;updateWelcome();}
-    $('compose-note').textContent=data.model==='error'?t('modelError'):data.model==='loading'?t('modelLoading'):t('sourceReminder');
+    $('compose-note').textContent=data.model==='error'?t('modelError'):data.model==='loading'?t('modelLoading'):t(state.mode==='general'?'modeGeneralNote':'sourceReminder');
   } catch {
     state.ready=false; $('model-status').className='model-status error';
     $('model-status').replaceChildren(make('i'),document.createTextNode(t('reconnecting')));
@@ -55,14 +73,17 @@ async function refreshTree() {
     $('tree').replaceChildren(...(nodes.length?nodes.map(treeNode):[make('p','muted',t('libraryEmpty'))]));
   } catch { const retry=make('button','',t('libraryRetry'));retry.addEventListener('click',refreshTree);$('tree').replaceChildren(retry); }
 }
-function message(role,text,extraClass='') {
-  $('welcome').hidden=true;
-  const article=make('article',`message ${role} ${extraClass}`); article.append(make('div','message-label',role==='user'?t('you'):'Mhizva'),make('div','message-content',text));
-  $('messages').append(article); scrollToLatest(); return article;
+function message(role,text,extraClass='',mode=state.mode) {
+  if(mode===state.mode)$('welcome').hidden=true;
+  const article=make('article',`message ${role} ${extraClass}`);article.dataset.mode=mode;
+  const label=role==='user'?t('you')+' · '+t(modeKey(mode)):'Mhizva';
+  article.append(make('div','message-label',label),make('div','message-content',text));
+  getThread(mode).append(article);scrollToLatest();return article;
 }
 function renderAnswer(article,result) {
   article.replaceChildren(make('div','message-label','Mhizva'),make('div','message-content',result.answer || t(result.found?'found':'notFound')));
-  if(result.kind==='general')article.querySelector('.message-label').append(make('span','answer-scope',t('generalKnowledge')));
+  if(result.kind==='general'||result.mode==='general')article.querySelector('.message-label').append(document.createTextNode(' · '),make('span','answer-scope',t('generalKnowledge')));
+  else if(['data','business'].includes(result.mode))article.querySelector('.message-label').append(document.createTextNode(' · '+t(modeKey(result.mode))));
   if(result.table||result.chart||result.coverage)article.append(window.renderMhizvaResult(result,openDoc));
   if(Array.isArray(result.quotes)&&result.quotes.length) {
     const sources=make('div','sources');
@@ -78,11 +99,16 @@ function renderAnswer(article,result) {
 function scrollToLatest() { requestAnimationFrame(()=>{ $('conversation').scrollTop=$('conversation').scrollHeight; }); }
 $('ask-form').addEventListener('submit',async event=>{
   event.preventDefault(); const question=$('question').value.trim(); if(!question || !state.ready || state.asking || state.uploading)return;
+  const requestedMode=state.mode;
   state.asking=true; updateSend(); $('conversation').setAttribute('aria-busy','true');
   message('user',question); $('question').value=''; $('question').style.height='auto';
   const pending=message('assistant',t('thinking'),'thinking');
   try {
-    const result=await api('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question})});
+    const requestBody={question,mode:requestedMode};
+    if(requestedMode==='general')requestBody.history=generalTurns.slice(-8).map(turn=>({role:turn.role,content:turn.content}));
+    const result=await api('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(requestBody)});
+    if(!result.mode)result.mode=requestedMode;
+    if(requestedMode==='general'&&result.mode==='general'&&typeof result.answer==='string'){generalTurns.push({role:'user',content:question},{role:'assistant',content:result.answer});if(generalTurns.length>8)generalTurns.splice(0,generalTurns.length-8);}
     pending.classList.remove('thinking');
     renderAnswer(pending,result);
     completedAnswers.push([pending,result]);
@@ -189,13 +215,16 @@ function applyLanguage() {
   document.querySelectorAll('[data-i18n]').forEach(node=>node.textContent=t(node.dataset.i18n));
   document.querySelectorAll('[data-i18n-aria]').forEach(node=>node.setAttribute('aria-label',t(node.dataset.i18nAria)));
   document.querySelectorAll('[data-i18n-placeholder]').forEach(node=>node.setAttribute('placeholder',t(node.dataset.i18nPlaceholder)));
-  document.querySelectorAll('.message.user .message-label').forEach(node=>node.textContent=t('you'));
+  document.querySelectorAll('.message.user .message-label').forEach(node=>node.textContent=t('you')+' · '+t(modeKey(node.parentElement.dataset.mode || state.mode)));
   document.querySelectorAll('.message.thinking .message-content').forEach(node=>node.textContent=t('thinking'));
   updateWelcome();renderUploads();
   for(const [article,result] of completedAnswers)renderAnswer(article,result);
 }
+document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>switchMode(button.dataset.mode)));
 $('language').addEventListener('change',()=>window.MhizvaI18n.setLanguage($('language').value));
 window.addEventListener('mhizva-language',()=>{applyLanguage();refreshStatus();refreshTree();});
 applyLanguage();
+document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===state.mode)));
+getThread(state.mode);
 Promise.all([refreshStatus(),refreshTree()]);
 setInterval(refreshStatus,4000);

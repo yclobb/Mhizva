@@ -66,8 +66,8 @@ CHAT_REPLY = {"en": "Nice to meet you! I'm Mhizva. Ask me anything about your do
 
 
 CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|cheers|bye|goodbye|good (morning|afternoon|evening|night)|"
-                  r"ok|okay|cool|nice|great|lol)\b|\b(i|we)\s+(created|made|built|love|like|hate)\s+you\b|"
-                  r"\byou('re| are)\b|你好|您好|谢谢|再见|我(创造|做|造)了你|你是", re.I)
+                  r"ok|okay|cool|nice|great|lol)\b|\b(i|we)\s+(\w+\s+)?(created|made|built|love|like|hate)\s+(you|u)\b|"
+                  r"\b(i am|i'm|im)\s+(ur|your)\b|\b(you|u)('re| are| r)\b|你好|您好|谢谢|再见|我(创造|做|造)了你|你是", re.I)
 
 
 def chit_chat(question):
@@ -75,6 +75,23 @@ def chit_chat(question):
     friendly reply instead of handing a small model nothing to do (it tends to recite its instructions).
     Keyword searches without a question mark ('Smith contract price') still search."""
     return bool(CHAT.search(question)) and not ASKING.search(question.strip())
+
+
+HISTORY_TURNS, HISTORY_CHARS = 6, 1500  # fits the 4k context with room for the reply
+
+
+def clean_history(history):
+    """Prior General-mode turns only: roles checked, newest kept, total size capped."""
+    out, size = [], 0
+    for h in reversed(history or []):
+        if not isinstance(h, dict) or h.get("role") not in ("user", "assistant"):
+            continue
+        content = str(h.get("content") or "").strip()[:500]
+        if not content or size + len(content) > HISTORY_CHARS or len(out) >= HISTORY_TURNS:
+            break
+        out.append({"role": h["role"], "content": content})
+        size += len(content)
+    return list(reversed(out))
 
 
 def leaked(answer, instructions):
@@ -106,6 +123,7 @@ def general_question(question):
 class Searcher:
     def __init__(self, lib, llm):
         self.lib, self.llm = lib, llm
+        self.history = []
         self.cache = {}  # optimisation 9: repeated questions
 
     def score(self, question, q, entries):
@@ -213,10 +231,11 @@ class Searcher:
         best = cands[0][0]
         return [c for c in cands if c[0] >= 0.5 * best][:3]
 
-    def ask(self, question, budget=4.0, mode="auto"):
+    def ask(self, question, budget=4.0, mode="auto", history=None):
         """mode (Lucas): "general" = plain assistant, never touches the library; "data" = only computed
         totals/tables/charts/trends from the facts table; "business" = the documents only (lookups and
         facts), never a general-knowledge answer; "auto" = decide per question."""
+        self.history = clean_history(history) if mode == "general" else []  # history only in General mode
         res = self._ask(question, budget, mode if mode in MODES else "auto")
         res["mode"] = mode if mode in MODES else "auto"
         return res
@@ -292,11 +311,14 @@ class Searcher:
         instructions = (f"You are Mhizva, a helpful assistant for a small business in {COUNTRY}. Answer general "
                         "questions briefly from general knowledge. If it depends on the business's own records, "
                         "say you couldn't find it in their documents." if business else
-                        "You are a helpful, friendly assistant. Answer clearly and briefly.")
+                        "You are Mhizva, a friendly assistant that runs privately on this computer. Chat naturally, "
+                        "answer clearly and briefly, and say so when you are not sure.")
+        past = "".join(f"{'User' if h['role'] == 'user' else 'Mhizva'}: {h['content']}\n" for h in self.history)
         text = self.llm.write(chat(
             instructions,
-            f"Question: {question}\nAnswer in at most three sentences" + (", in Chinese." if zh else ".")),
-            n=160, stop=["<|eot_id|>"])
+            (f"Conversation so far:\n{past}\n" if past else "")
+            + f"User: {question}\nReply in at most three sentences" + (", in Chinese." if zh else ".")),
+            n=160, stop=["<|eot_id|>", "\nUser:"])
         if not text:
             return None
         if leaked(text, instructions):

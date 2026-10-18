@@ -120,7 +120,7 @@ class Handler(BaseHTTPRequestHandler):
                     q = (req.get("question") or "").strip()
                     if not q:
                         return self.send(400, {"error": "empty question"})
-                    res = searcher.ask(q, mode=req.get("mode") or "auto")
+                    res = searcher.ask(q, mode=req.get("mode") or "auto", history=req.get("history"))
                     answers[res["id"]] = res  # kept for /api/export
                     while len(answers) > 200:
                         answers.pop(next(iter(answers)))

@@ -9,7 +9,7 @@ import re
 import zipfile
 from collections import Counter
 
-from . import facts
+from . import facts, tables
 from .llm import chat, plain_words
 from .tree import Entry, safe_name
 
@@ -220,7 +220,54 @@ def file_folder(lib, llm, cls, title, summary):
     return top
 
 
+def add_table(lib, llm, filename, data):
+    """A spreadsheet: one folder for the file, one section doc per 25 rows (summaries written by code, not
+    the model, so 10,000 rows file in seconds), and one fact per money cell straight from the columns."""
+    title = os.path.splitext(os.path.basename(filename))[0]
+    header, rows = tables.read_table(filename, data)
+    if not header or not rows:
+        raise ValueError("no rows found in this spreadsheet")
+    rl = tables.roles(header, rows)
+    cols = ", ".join(tables.nice(h) for h in header)
+    opening = f"{title}\n{cols}\n" + "\n".join(tables.record_text(header, r) for r in rows[:3])
+    kind = facts.kind_by_words(opening) or "report"
+    cls = {"party": title, "kind": kind, "direction": facts.DIRECTION.get(kind)}
+    parties = sorted({r[rl["party"]].strip() for r in rows if rl["party"] is not None and rl["party"] < len(r)} - {""})
+    summary = (f"Spreadsheet, {len(rows)} rows. Columns: {cols}."
+               + (f" Includes {', '.join(parties[:6])}{' and more' if len(parties) > 6 else ''}." if parties else ""))
+    keywords = top_keywords(title + " " + cols + " " + " ".join(parties), 12)
+    folder = file_folder(lib, llm, cls, title, summary)
+    roll = summarise_folder(llm)
+    meta = {"title": title, "summary": summary, "keywords": keywords, "questions": [],
+            "source": os.path.basename(filename), "rows": len(rows), "columns": header, **cls}
+    name = lib.unique(folder, safe_name(title))
+    sub = f"{folder}/{name}".lstrip("/")
+    lib.write_index(sub, title, summary, [])
+    paths = []
+    for i, text in enumerate(tables.markdown_sections(title, header, rows)):
+        part = rows[i * tables.ROWS_PER_SECTION:(i + 1) * tables.ROWS_PER_SECTION]
+        first, last = i * tables.ROWS_PER_SECTION + 1, i * tables.ROWS_PER_SECTION + len(part)
+        who = sorted({r[rl["party"]].strip() for r in part if rl["party"] is not None and rl["party"] < len(r)} - {""})
+        refs = [r[rl["ref"]].strip() for r in part if rl["ref"] is not None and rl["ref"] < len(r)]
+        s_sum = (f"Rows {first}-{last}" + (f", {refs[0]} to {refs[-1]}" if refs else "")
+                 + (f": {', '.join(who[:5])}{' and more' if len(who) > 5 else ''}" if who else ""))
+        s_name = f"Rows {first:05d}-{last:05d}.md"
+        lib.write_doc(sub, s_name, {**meta, "title": f"{title}, rows {first}-{last}", "summary": s_sum,
+                                     "first_row": first}, text)
+        lib.put_entry(sub, Entry(s_name, "doc", s_sum, top_keywords(text, 10)))
+        paths.append(f"{sub}/{s_name}")
+    # more than MAX_CHILDREN sections: regroup the section docs is left to self-organisation; searching
+    # still works because wide folders are scored in batches
+    lib.put_entry(folder, Entry(name, "folder", summary, keywords))
+    lib.refresh_up(folder, roll)
+    rows_facts = tables.facts_from_rows(lambda n: paths[(n - 1) // tables.ROWS_PER_SECTION], title, header, rows, cls)
+    facts.FactStore(lib.root).replace_doc(sub, rows_facts)
+    return {"name": os.path.basename(filename), "path": sub, "summary": summary}
+
+
 def add_file(lib, llm, filename, data):
+    if filename.lower().endswith(tables.TABULAR):
+        return add_table(lib, llm, filename, data)
     title, md = to_markdown(filename, data)
     if not md.strip():
         raise ValueError("no text found in this file")
