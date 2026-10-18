@@ -68,9 +68,12 @@ CHAT_REPLY = {"en": "Nice to meet you! I'm Mhizva. Ask me anything about your do
               "zh_general": "很高兴认识你！我是 Mhizva。你想聊点什么？"}
 
 
-CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|cheers|bye|goodbye|good (morning|afternoon|evening|night)|"
-                  r"ok|okay|cool|nice|great|lol)\b|\b(i|we)\s+(\w+\s+)?(created|made|built|love|like|hate)\s+(you|u)\b|"
-                  r"\b(i am|i'm|im)\s+(ur|your)\b|\b(you|u)('re| are| r)\b|你好|您好|谢谢|再见|我(创造|做|造)了你|你是", re.I)
+# Greetings count only as the WHOLE message ("ok", "hi there!"), never as a prefix ("ok but you didn't...").
+CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|thx|cheers|bye|goodbye|good (morning|afternoon|evening|night)|"
+                  r"ok|okay|cool|nice|great|lol)(\s+(there|mhizva|mate|so much|a lot))?[\s!.,~]*$|"
+                  r"^\s*(i|we)\s+(\w+\s+)?(created|made|built|love|like|hate)\s+(you|u)[\s!.,]*$|"
+                  r"^\s*(no\s+)?(i am|i'm|im)\s+(ur|your)\s+\w+[\s!.,]*$|^\s*(no\s+)?i\s+(\w+\s+)?made\s+(you|u)[\s!.,]*$|"
+                  r"^\s*(you|u)('re| are| r)\s+\w+[\s!.,]*$|^\s*(你好|您好|谢谢|再见|我(创造|做|造)了你)[！!。.，,\s]*$", re.I)
 
 
 IDENTITY = re.compile(r"\b(what|which)\s+(ai|model|llm)\b|\bwho\s+(made|built|created|trained|owns)\s+(you|u)\b|"
@@ -107,6 +110,11 @@ ASK_VERB = re.compile(r"\b(explain|tell|show|list|find|give|summari[sz]e|compare
                       r"describe|write|help)\b|解释|告诉|显示|列出|计算|总结|帮", re.I)
 COMPARE = re.compile(r"\b(limitation|limits|weakness|compared?|vs\.?|versus|outperform|better than|worse than|"
                      r"chatgpt|claude|gpt|gemini|opus)\w*", re.I)
+
+
+FALSE_MAKER = re.compile(r"\b(created|made|developed|trained|built|designed)\s+by\s+(anthropic|openai|google|"
+                         r"deepmind|meta|microsoft|alibaba)|\bi\s*(am|'m)\s+(chatgpt|claude|gpt|gemini|qwen|llama)\b|"
+                         r"由(Anthropic|OpenAI|谷歌|阿里)", re.I)
 
 
 def chit_chat(question):
@@ -370,6 +378,8 @@ class Searcher:
             return None
         if leaked(text, instructions):
             return self.friendly(question, t0)
+        if FALSE_MAKER.search(text):  # a model inventing who made it: replace with the true identity
+            return {**self.friendly(question, t0), "answer": identity(question, self.llm)}
         return {"id": uuid.uuid4().hex[:12], "kind": "general", "answer": text, "found": False,
                 "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
                 "trace": trace, "seconds": round(time.time() - t0, 2)}

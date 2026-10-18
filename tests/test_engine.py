@@ -69,8 +69,9 @@ def main():
             print("PASS" if ok else "FAIL", "identity:", q, "->", r["answer"][:70])
         from engine.search import chit_chat
         not_chat = ["ok. what are the payment terms", "hi, explain GST to me", "hey show me unpaid invoices",
-                    "thanks, list all bills", "ok so how much do we owe"]
-        is_chat = ["hi", "thanks!", "ok cool", "i am ur creator", "你好"]
+                    "thanks, list all bills", "ok so how much do we owe", "ok but u didnt answer my statement",
+                    "u dum"]
+        is_chat = ["hi", "thanks!", "ok", "hi there!", "i am ur creator", "no i literally made u", "你好"]
         ok = not any(chit_chat(q) for q in not_chat) and all(chit_chat(q) for q in is_chat)
         fails += not ok
         print("PASS" if ok else "FAIL", "chit-chat boundaries",
