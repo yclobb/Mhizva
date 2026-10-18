@@ -63,7 +63,9 @@ SCHEMA = {
         "filters": {
             "type": "object",
             "properties": {
-                "period": {"type": "string", "maxLength": 12},
+                "period": {"anyOf": [{"type": "string", "maxLength": 12},
+                                     {"type": "array", "items": {"type": "string", "maxLength": 12}, "maxItems": 2}]},
+                "ref": {"type": "string", "maxLength": 24},
                 "date_field": {"type": "string", "enum": ["issued", "due", "paid", ""]},
                 "status": {"type": "string", "enum": STATUSES},
                 "days_overdue": {"type": "string", "maxLength": 8},
@@ -73,6 +75,8 @@ SCHEMA = {
             },
         },
         "subject": {"type": "string", "maxLength": 60},
+        "agg": {"type": "string", "enum": ["sum", "avg", "min", "max"]},
+        "money_field": {"type": "string", "enum": ["total", "subtotal", "tax"]},
     },
     "required": ["intent", "direction", "group_by", "filters", "subject"],
 }

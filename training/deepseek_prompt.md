@@ -54,6 +54,14 @@ Output **only** JSON Lines: one JSON object per line, no commentary, no numberin
 
 **subject**: 1-4 words saying what the message is about, or `""`.
 
+### Spec v2.1 additions (agreed 2026-10-18)
+- `form.agg` (optional, default `"sum"`): `"sum"`, `"avg"`, `"min"`, `"max"`. Averages are intent `total` with `agg: "avg"`.
+- `filters.period` may be a 2-item list for compare: `["this_month", "last_month"]`.
+- `filters.ref`: a document number the message names, e.g. `"INV-1043"`, `"B-2201"`.
+- `form.money_field` (optional, default `"total"`): `"total"`, `"subtotal"`, `"tax"`. "How much GST did we charge" → intent `total`, direction `in`, `money_field: "tax"`.
+- `filters.category` suggested values: fuel, materials, software, rent, wages, insurance, utilities, travel, marketing, equipment, subcontractors, other. Free text is still allowed.
+- Quotes count as `direction: "in"` (money the business expects to receive).
+
 ### Consistency rules (very important)
 1. A "breakdown per X" is `total` with `group_by: X`, never `list`.
 2. Time is a filter, not a grouping: "this week" → `period`. But "monthly breakdown" → `group_by: "month"`.
@@ -125,6 +133,14 @@ Mhizva 在回答之前，会先填写一张**表单**，说明这条消息在问
 - `party`：具体的客户或供应商名字（例如 `"木材公司"`）
 
 **subject**：用 1-4 个词说明消息的主题，或 `""`。
+
+### 规范 v2.1 补充（2026-10-18 确认）
+- `form.agg`（可选，默认 `"sum"`）：`"sum"`、`"avg"`、`"min"`、`"max"`。求平均是 intent `total` 加 `agg: "avg"`。
+- `filters.period` 在比较时可以是两个元素的列表：`["this_month", "last_month"]`。
+- `filters.ref`：消息中提到的单据编号，例如 `"INV-1043"`、`"B-2201"`。
+- `form.money_field`（可选，默认 `"total"`）：`"total"`、`"subtotal"`、`"tax"`。"我们收了多少消费税（GST）" → intent `total`，direction `in`，`money_field: "tax"`。
+- `filters.category` 建议值：fuel、materials、software、rent、wages、insurance、utilities、travel、marketing、equipment、subcontractors、other。仍然允许自由文本。
+- 报价单算 `direction: "in"`（企业预计会收到的钱）。
 
 ### 一致性规则（非常重要）
 1. "按 X 汇总/细分"是 `total` 加 `group_by: X`，不是 `list`。

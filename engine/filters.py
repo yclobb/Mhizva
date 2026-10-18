@@ -102,7 +102,12 @@ def apply(rows, filters, today=None):
     today = today or dt.date.today()
     f = filters or {}
     out = list(rows)
-    win = window(f.get("period"), today)
+    period = f.get("period")
+    if isinstance(period, list):  # compare across two periods: keep rows in either (split later by compare)
+        wins = [w for w in (window(p, today) for p in period) if w]
+        win = (min(w[0] for w in wins), max(w[1] for w in wins)) if wins else None
+    else:
+        win = window(period, today)
     if win:
         field = f.get("date_field") or "issued"
         out = [r for r in out if (d := record_date(r, field)) and win[0] <= d <= win[1]]
@@ -124,6 +129,9 @@ def apply(rows, filters, today=None):
             out = [r for r in out if not is_paid(r) and (d := record_date(r, "due")) and d < cutoff]
     if f.get("amount"):
         out = [r for r in out if compare_number(r.get("amount"), f["amount"])]
+    if f.get("ref"):  # a named document number (INV-1043)
+        ref = f["ref"].lower()
+        out = [r for r in out if ref in (r.get("ref") or "").lower() or ref in r.get("text", "").lower()]
     for key in ("category", "party"):
         if f.get(key):
             want = set(words(f[key]))
