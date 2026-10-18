@@ -51,6 +51,15 @@ def chunks(text):
     return [c for c in out if len(c) >= 20]
 
 
+OWN_RECORDS = re.compile(r"\b(our|we|us|my|mine|company|business|staff|client|customer|supplier|invoice|"
+                         r"quote|contract|policy|bill|receipt)s?\b|我们|我的|公司|员工|客户|供应商|发票|合同|账单", re.I)
+
+
+def general_question(question):
+    """A question about the world, not about this business's own records."""
+    return not OWN_RECORDS.search(question)
+
+
 class Searcher:
     def __init__(self, lib, llm):
         self.lib, self.llm = lib, llm
@@ -199,7 +208,21 @@ class Searcher:
                 n=60, stop=["<|eot_id|>", "\n"])
             if text and "NOT_FOUND" not in text:
                 answer, found = text, True
-        out = {"id": uuid.uuid4().hex[:12], "kind": "lookup", "answer": answer, "found": found,
+        kind = "lookup"
+        if not found and general_question(question):
+            # Lucas: everyday/general questions get a general answer, clearly labelled. It is never
+            # filed, cached or turned into facts, so it can't overwrite what the documents say.
+            text = self.llm.write(chat(
+                "You are Mhizva, a helpful assistant for a small business. Answer general questions briefly "
+                "from general knowledge. If it depends on the business's own records, say you couldn't find it "
+                "in their documents.",
+                f"Question: {question}\nAnswer in at most three sentences" + (", in Chinese." if zh else ".")),
+                n=120, stop=["<|eot_id|>"])
+            if text:
+                return {"id": uuid.uuid4().hex[:12], "kind": "general", "answer": text, "found": False,
+                        "general": True, "quotes": [], "table": None, "chart": None, "coverage": None,
+                        "trace": trace, "seconds": round(time.time() - t0, 2)}
+        out = {"id": uuid.uuid4().hex[:12], "kind": kind, "answer": answer, "found": found,
                "quotes": [{"text": c[1], "path": c[2], "title": c[3]} for c in picked] if found else [],
                "table": None, "chart": None, "coverage": None, "trace": trace}
         if found:

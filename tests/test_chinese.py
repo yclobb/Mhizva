@@ -80,8 +80,10 @@ def main():
         r = s.ask("员工年假有几天？")
         check("zh lookup", r["kind"] == "lookup" and r["found"] and "15天" in r["quotes"][0]["text"],
               r["quotes"][0]["text"] if r["quotes"] else r["answer"])
-        r = s.ask("停车位在哪里？")
+        r = s.ask("我们的停车位在哪里？")  # about the business itself: must say not found
         check("zh not found", not r["found"] and r["answer"] == "在你的文件里没有找到这个答案。", r["answer"])
+        r = s.ask("太阳系有几颗行星？")  # general question: labelled general answer, nothing filed
+        check("zh general", r["kind"] == "general" and r.get("general") and not r["found"], r["kind"])
     finally:
         shutil.rmtree(root, ignore_errors=True)
     print(f"{len(failures)} failures")

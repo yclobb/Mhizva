@@ -64,7 +64,8 @@ class ServerLLM:
         self.path, template = CATALOGUE[name]
         self.template, self.end = TEMPLATES[template]
         self.lock = threading.Lock()  # one request at a time per server
-        self.threads = threads or max(1, (os.cpu_count() or 4) // 2)
+        # 4 beat 8 on an i7-1260P (4 performance + 8 efficiency cores); per-machine tuning comes later
+        self.threads = threads or min(4, os.cpu_count() or 4)
         self.proc = None
         self.state = "loading"
 

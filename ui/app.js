@@ -60,6 +60,7 @@ function message(role,text,extraClass='') {
 }
 function renderAnswer(article,result) {
   article.replaceChildren(make('div','message-label','Mhizva'),make('div','message-content',result.answer || t(result.found?'found':'notFound')));
+  if(result.kind==='general')article.querySelector('.message-label').append(make('span','answer-scope',t('generalKnowledge')));
   if(result.table||result.chart||result.coverage)article.append(window.renderMhizvaResult(result,openDoc));
   if(Array.isArray(result.quotes)&&result.quotes.length) {
     const sources=make('div','sources');
