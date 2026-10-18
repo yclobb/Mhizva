@@ -43,6 +43,15 @@ def main():
         r = s.ask("What is the capital of France?")
         print("PASS" if not r["found"] else "FAIL", "unanswerable ->", r["answer"])
         fails += r["found"]
+        from engine.search import grounded
+        g = [grounded("GST is a tax on goods and services purchased in Canada.", "What is GST?",
+                      "- The total contract price is $42,000 including GST."),
+             grounded("$42,000", "How much is the Smith contract?", "- The total contract price is $42,000."),
+             grounded("15天", "员工年假有几天？", "- 全职员工每年有15天带薪年假。"),
+             grounded("20天", "员工年假有几天？", "- 全职员工每年有15天带薪年假。")]
+        ok = g == [False, True, True, False]
+        fails += not ok
+        print("PASS" if ok else "FAIL", "grounding check", g)
         print(f"{fails} failures")
         return fails
     finally:

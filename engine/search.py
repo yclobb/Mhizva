@@ -23,6 +23,7 @@ BACKTRACK_FLOOR = 0.05  # leftover budget never flows to children scored below t
 MAX_CALLS = 12     # routing calls per question (index scoring); keywords only after that.
                    # Each answer adds at most one passage pick and one short write on top.
 MAX_NODES = 40     # folders visited per question
+COUNTRY = "Australia"  # where the business is; general answers assume it (becomes a setting later)
 
 
 def overlap(q, text):
@@ -53,6 +54,21 @@ def chunks(text):
 
 OWN_RECORDS = re.compile(r"\b(our|we|us|my|mine|company|business|staff|client|customer|supplier|invoice|"
                          r"quote|contract|policy|bill|receipt)s?\b|我们|我的|公司|员工|客户|供应商|发票|合同|账单", re.I)
+
+
+def grounded(answer, question, quotes):
+    """Small models sometimes answer from memory instead of the quotes ("GST ... in Canada").
+    Accept an answer only if most of its own content words (not the question's) appear in the quotes,
+    and every number in it does."""
+    nums = re.findall(r"\d[\d,.]*", answer)
+    if any(n.strip(".,") not in quotes for n in nums):
+        return False
+    new = set(words(answer)) - set(words(question))
+    if not new:
+        return True
+    have = set(words(quotes))
+    # Chinese terms are checked as text: a lone character (天) never forms a pair
+    return sum(1 for w in new if w in have or (not w.isascii() and w in quotes)) / len(new) >= 0.6
 
 
 def general_question(question):
@@ -206,14 +222,14 @@ class Searcher:
                 f"Quotes:\n{listing}\n\nQuestion: {question}\nAnswer in one short sentence"
                 + (", in Chinese." if zh else ".")),
                 n=60, stop=["<|eot_id|>", "\n"])
-            if text and "NOT_FOUND" not in text:
+            if text and "NOT_FOUND" not in text and grounded(text, question, listing):
                 answer, found = text, True
         kind = "lookup"
         if not found and general_question(question):
             # Lucas: everyday/general questions get a general answer, clearly labelled. It is never
             # filed, cached or turned into facts, so it can't overwrite what the documents say.
             text = self.llm.write(chat(
-                "You are Mhizva, a helpful assistant for a small business. Answer general questions briefly "
+                f"You are Mhizva, a helpful assistant for a small business in {COUNTRY}. Answer general questions briefly "
                 "from general knowledge. If it depends on the business's own records, say you couldn't find it "
                 "in their documents.",
                 f"Question: {question}\nAnswer in at most three sentences" + (", in Chinese." if zh else ".")),

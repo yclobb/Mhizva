@@ -186,13 +186,38 @@ def doc_paths(lib, path):
     return out
 
 
-def store_facts(lib, llm, path):
+def store_facts(lib, llm, path, cls):
     """Amounts and dates of the new document (every section, for a long one) into the facts table."""
     rows = []
     for p in doc_paths(lib, path):
         meta, text = lib.read_doc(p)
-        rows += facts.extract(llm, p, meta.get("title") or p, text)
+        rows += facts.extract(llm, p, meta.get("title") or p, text, cls)
     facts.FactStore(lib.root).replace_doc(path, rows)
+
+
+def ensure_folder(lib, parent, name, summary):
+    sub = f"{parent}/{name}".lstrip("/")
+    if not lib.is_folder(sub):
+        lib.write_index(sub, name, summary, [])
+        lib.put_entry(parent, Entry(name, "folder", summary, []))
+    return sub
+
+
+def file_folder(lib, llm, cls, title, summary):
+    """Type first, then who it's with: Invoices/Smith Family, Bills/Timber Co, Policies/.
+    Decided by the document's classification, not invented by the model, so the tree stays tidy
+    with small models. Falls back to the model's folder choice when a type folder is full."""
+    top_name = facts.KIND_FOLDER[cls["kind"]]
+    if top_name not in {e.name for e in lib.entries("")} and len(lib.entries("")) >= MAX_CHILDREN:
+        return choose_folder(lib, llm, title, summary)
+    top = ensure_folder(lib, "", top_name, summary)
+    party = cls["party"]
+    if party == title:  # no separate party (a policy, a report): file directly under the type
+        return top
+    name = safe_name(party)
+    if lib.is_folder(f"{top}/{name}") or len(lib.entries(top)) < MAX_CHILDREN:
+        return ensure_folder(lib, top, name, summary)
+    return top
 
 
 def add_file(lib, llm, filename, data):
@@ -200,10 +225,11 @@ def add_file(lib, llm, filename, data):
     if not md.strip():
         raise ValueError("no text found in this file")
     summary, keywords, questions = describe(llm, title, md)
-    folder = choose_folder(lib, llm, title, summary)
+    cls = facts.classify(llm, title, md)
+    folder = file_folder(lib, llm, cls, title, summary)
     roll = summarise_folder(llm)
     meta = {"title": title, "summary": summary, "keywords": keywords, "questions": questions,
-            "source": os.path.basename(filename)}
+            "source": os.path.basename(filename), **cls}
 
     if len(md) <= LONG:
         name = lib.unique(folder, safe_name(title, ".md"))
@@ -221,5 +247,5 @@ def add_file(lib, llm, filename, data):
         lib.refresh_up(sub, roll)
         path = sub
     lib.refresh_up(folder, roll)
-    store_facts(lib, llm, path)
+    store_facts(lib, llm, path, cls)
     return {"name": os.path.basename(filename), "path": path, "summary": summary}

@@ -16,8 +16,8 @@ import zipfile
 from .llm import chat, has_cjk, words
 
 FACTS = "facts.jsonl"
-KINDS = ["contract", "quote", "invoice", "receipt", "insurance", "policy", "report", "other"]
-LETTERS = "ABCDEFGH"
+KINDS = ["contract", "quote", "invoice", "bill", "receipt", "insurance", "policy", "report", "other"]
+LETTERS = "ABCDEFGHI"
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september",
           "october", "november", "december"]
 MON = {m[:3]: i + 1 for i, m in enumerate(MONTHS)}
@@ -84,18 +84,57 @@ def label_of(sentence, amount_text):
     return " ".join(ws[-4:]) or "amount"
 
 
-def extract(llm, path, title, text):
+# Document type: the first type word in the title or opening line decides; the model only when none appears.
+KIND_WORDS = [("quote", r"\bquot(e|ation)\b|报价"), ("invoice", r"\binvoice\b|发票"), ("bill", r"\bbill\b|账单"),
+              ("receipt", r"\breceipt\b|收据"), ("contract", r"\bcontract\b|\bagreement\b|合同|协议"),
+              ("insurance", r"\binsurance\b|保险"), ("policy", r"\bpolicy\b|制度|政策"), ("report", r"\breport\b|报告")]
+KIND_FOLDER = {"contract": "Contracts", "quote": "Quotes", "invoice": "Invoices", "bill": "Bills",
+               "receipt": "Receipts", "insurance": "Insurance", "policy": "Policies", "report": "Reports",
+               "other": "Other"}
+# Which way the money goes: "in" = the business is owed it (its invoices and quotes to customers),
+# "out" = the business pays it (bills, receipts, insurance). Never mixed in one total.
+DIRECTION = {"quote": "in", "invoice": "in", "bill": "out", "receipt": "out", "insurance": "out"}
+
+
+def kind_by_words(text):
+    best = None
+    for kind, pat in KIND_WORDS:
+        m = re.search(pat, text, re.I)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), kind)
+    return best[1] if best else None
+
+
+def classify(llm, title, text):
+    """{party, kind, direction} for a document, decided once at upload."""
     party = llm.write(chat(
         "You read business documents.",
         f"Document: {title}\n{text[:2500]}\n\nWho is the main other party (customer, supplier, insurer, person)? "
         f"Reply with the name only, or 'none'."), n=12, stop=["<|eot_id|>", "\n"]).strip(" .\"'")
-    if not party or party.lower() in ("none", "n/a", "unknown"):
+    if not party or party.lower() in ("none", "n/a", "unknown") or len(party) > 60:
         party = title
-    probs = llm.pick(chat(
-        "You classify business documents.",
-        f"Document: {title}\n{text[:1500]}\n\nTypes:\n" + "\n".join(f"{LETTERS[i]}) {k}" for i, k in enumerate(KINDS))
-        + "\n\nWhich type is this document? Answer with one letter."), list(LETTERS[:len(KINDS)]))
-    kind = KINDS[LETTERS.index(max(probs, key=probs.get))]
+    opening = title + "\n" + "\n".join(text.strip().splitlines()[:2])
+    kind = kind_by_words(opening)
+    if not kind:
+        probs = llm.pick(chat(
+            "You classify business documents.",
+            f"Document: {title}\n{text[:1500]}\n\nTypes:\n" + "\n".join(f"{LETTERS[i]}) {k}" for i, k in enumerate(KINDS))
+            + "\n\nWhich type is this document? Answer with one letter."), list(LETTERS[:len(KINDS)]))
+        kind = KINDS[LETTERS.index(max(probs, key=probs.get))]
+    direction = DIRECTION.get(kind)
+    if kind == "contract":
+        probs = llm.pick(chat(
+            "You read business contracts.",
+            f"Document: {title}\n{text[:1500]}\n\nA) The business is paid under this contract (it is the builder, "
+            f"seller or service provider)\nB) The business pays under this contract (it is the customer)\n\n"
+            f"Which is it? Answer with one letter."), ["A", "B"])
+        direction = "in" if probs["A"] >= probs["B"] else "out"
+    return {"party": party, "kind": kind, "direction": direction}
+
+
+def extract(llm, path, title, text, cls=None):
+    cls = cls or classify(llm, title, text)
+    party, kind = cls["party"], cls["kind"]
     rows = []
     for s in SENT.split(text):
         s = s.strip(" -*#\t")
@@ -118,6 +157,7 @@ def extract(llm, path, title, text):
     ref = REF.search(text)
     for r in rows:
         r["ref"] = ref.group(0) if ref else None
+        r["direction"] = cls.get("direction")
         if r["amount"] is not None:
             r["date_from"] = "sentence" if r["date"] else ("document" if doc_dates else None)
             r["date"] = r["date"] or (doc_dates[0] if doc_dates else None)
@@ -221,6 +261,28 @@ def subject_words(question):
 WHO = r"\bwhich\b|\bwho\b|哪些|哪个|哪家|谁"
 
 
+IN_WORDS = (r"\b(owed to us|owe us|owing to us|receivable|income|revenue|sales|earn\w*|invoic\w*|quot\w*|"
+            r"customers? owe|clients? owe|charge\w*|bill(ed)? (our )?(customers|clients))\b|应收|收入|销售|发票|报价|要收")
+OUT_WORDS = (r"\b(we owe|do we owe|payable|expenses?|spen[dt]\w*|costs?|bills?|suppliers?|vendors?|purchases?|"
+             r"receipts?|insurance|premiums?|pay\w*|paid)\b|应付|支出|费用|成本|账单|供应商|收据|保险|付款|要付")
+
+
+def money_direction(question):
+    """'in' (owed to the business), 'out' (the business pays) or None when the question doesn't say.
+    Specific phrases ('owed to us', 'we owe') beat general words ('invoice', 'cost')."""
+    q = question.lower()
+    if re.search(r"\b(owed to us|owe us|receivable)\b|应收", q):
+        return "in"
+    if re.search(r"\b(we owe|do we owe|payable)\b|应付", q):
+        return "out"
+    i, o = re.search(IN_WORDS, q), re.search(OUT_WORDS, q)
+    if i and not o:
+        return "in"
+    if o and not i:
+        return "out"
+    return None
+
+
 def select(rows, question):
     """Rows relevant to the question: subject words must meet the row; dates must fall in the window."""
     q = subject_words(question)
@@ -235,6 +297,11 @@ def select(rows, question):
         out.append(r)
     want_money = bool(re.search(r"\b(how much|total|sum|cost|price|owe|pay|spend|spent|worth)|\$"
                                 r"|多少钱|金额|总额|费用|价格|成本|付|欠|元|¥|￥", question.lower()))
+    way = money_direction(question)
+    if way:  # money owed to the business and money it pays are never mixed
+        same_way = [r for r in out if r["amount"] is None or r.get("direction") == way]
+        if any(r["amount"] is not None for r in same_way):  # untagged libraries keep working
+            out = same_way
     with_money = {r["doc"] for r in out if r["amount"] is not None}
     if want_money:
         out = [r for r in out if r["amount"] is not None]

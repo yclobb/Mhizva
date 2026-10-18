@@ -102,6 +102,13 @@ def main():
               and any(x[0] == "Pipe World" and x[1] != "rising" for x in rows), str(rows))
         check("rising named", "Timber Co" in r["answer"] and "Pipe World" not in r["answer"].split(".")[0], r["answer"])
 
+        r = s.ask("How much is owed on invoices in total?")
+        check("receivables exclude supplier bills", "$20,250" in r["answer"], r["answer"])
+        r = s.ask("How much have we spent on supplier bills in total?")
+        check("payables exclude customer invoices", "$6,200" in r["answer"], r["answer"])
+        check("type-first filing", {"Invoices", "Bills", "Contracts", "Quotes"} <= {e.name for e in lib.entries("")},
+              str([e.name for e in lib.entries("")]))
+
         r = s.ask("How much have we paid Timber Co in total?")
         check("duplicate bill counted once", r["kind"] == "aggregate", r["answer"])
         print("      ", r["answer"])
