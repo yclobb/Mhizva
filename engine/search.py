@@ -62,7 +62,10 @@ ASKING = re.compile(r"\?|？|^\s*(what|when|where|who|whom|whose|which|why|how|i
                     r"|吗|什么|多少|几|哪|怎么|怎样|为什么|谁|列出|画|显示|告诉|解释|比较|总结", re.I)
 CHAT_REPLY = {"en": "Nice to meet you! I'm Mhizva. Ask me anything about your documents, like totals, "
                     "due dates or trends, and I'll show you where the answer came from.",
-              "zh": "很高兴认识你！我是 Mhizva。你可以问我关于你文件的任何问题，比如合计、到期日或趋势，我会告诉你答案出自哪里。"}
+              "zh": "很高兴认识你！我是 Mhizva。你可以问我关于你文件的任何问题，比如合计、到期日或趋势，我会告诉你答案出自哪里。",
+              # General mode is a plain assistant: no document pitch
+              "en_general": "Nice to meet you! I'm Mhizva. What would you like to talk about?",
+              "zh_general": "很高兴认识你！我是 Mhizva。你想聊点什么？"}
 
 
 CHAT = re.compile(r"^\s*(hi|hello|hey|yo|thanks|thank you|cheers|bye|goodbye|good (morning|afternoon|evening|night)|"
@@ -100,6 +103,8 @@ def identity(question, llm):
 
 
 WH = re.compile(r"\b(what|when|where|who|which|why|how)\b|什么|怎么|为什么|哪|谁|多少", re.I)
+ASK_VERB = re.compile(r"\b(explain|tell|show|list|find|give|summari[sz]e|compare|chart|graph|plot|calculate|"
+                      r"describe|write|help)\b|解释|告诉|显示|列出|计算|总结|帮", re.I)
 COMPARE = re.compile(r"\b(limitation|limits|weakness|compared?|vs\.?|versus|outperform|better than|worse than|"
                      r"chatgpt|claude|gpt|gemini|opus)\w*", re.I)
 
@@ -111,7 +116,8 @@ def chit_chat(question):
     q = question.strip()
     # "ok. what are your limitations" starts like chit-chat but asks something: never treat a message
     # with a question word anywhere, or a long message, as chit-chat
-    return (bool(CHAT.search(q)) and not ASKING.search(q) and not WH.search(q) and len(q.split()) <= 8)
+    return (bool(CHAT.search(q)) and not ASKING.search(q) and not WH.search(q) and not ASK_VERB.search(q)
+            and len(q.split()) <= 8)
 
 
 HISTORY_TURNS, HISTORY_CHARS = 6, 1500  # fits the 4k context with room for the reply
@@ -161,6 +167,7 @@ class Searcher:
     def __init__(self, lib, llm):
         self.lib, self.llm = lib, llm
         self.history = []
+        self.mode = "auto"
         self.cache = {}  # optimisation 9: repeated questions
 
     def score(self, question, q, entries):
@@ -273,6 +280,7 @@ class Searcher:
         totals/tables/charts/trends from the facts table; "business" = the documents only (lookups and
         facts), never a general-knowledge answer; "auto" = decide per question."""
         self.history = clean_history(history) if mode == "general" else []  # history only in General mode
+        self.mode = mode
         res = self._ask(question, budget, mode if mode in MODES else "auto")
         res["mode"] = mode if mode in MODES else "auto"
         return res
@@ -367,7 +375,8 @@ class Searcher:
                 "trace": trace, "seconds": round(time.time() - t0, 2)}
 
     def friendly(self, question, t0):
-        return {"id": uuid.uuid4().hex[:12], "kind": "chat", "answer": CHAT_REPLY["zh" if has_cjk(question) else "en"],
+        key = ("zh" if has_cjk(question) else "en") + ("_general" if self.mode == "general" else "")
+        return {"id": uuid.uuid4().hex[:12], "kind": "chat", "answer": CHAT_REPLY[key],
                 "found": False, "quotes": [], "table": None, "chart": None, "coverage": None, "trace": [],
                 "seconds": round(time.time() - t0, 2)}
 

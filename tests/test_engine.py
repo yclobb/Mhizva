@@ -57,7 +57,8 @@ def main():
         s.llm = TeamLLM(ServerLLM("qwen2.5-0.5b", 1), ServerLLM("qwen2.5-1.5b", 2))  # names only, never started
         hist = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello!"}]
         seq = [("r u an ai", "qwen2.5-1.5b"), ("what model are you", "qwen2.5-0.5b and qwen2.5-1.5b"),
-               ("i am ur creator", "Nice to meet you"), ("no i literally made u", "Nice to meet you"),
+               ("i am ur creator", "What would you like to talk about"),
+               ("no i literally made u", "What would you like to talk about"),
                ("how smart are you", "small model"), ("for your model, what are you?", "qwen2.5-1.5b"),
                ("ok. what are your limitations compared to higher quality models like claude opus 5.5 and where you u "
                 "outpeform them", "never leave this computer")]
@@ -66,6 +67,20 @@ def main():
             ok = want in r["answer"] and "Anthropic" not in r["answer"] and r["kind"] == "chat"
             fails += not ok
             print("PASS" if ok else "FAIL", "identity:", q, "->", r["answer"][:70])
+        from engine.search import chit_chat
+        not_chat = ["ok. what are the payment terms", "hi, explain GST to me", "hey show me unpaid invoices",
+                    "thanks, list all bills", "ok so how much do we owe"]
+        is_chat = ["hi", "thanks!", "ok cool", "i am ur creator", "你好"]
+        ok = not any(chit_chat(q) for q in not_chat) and all(chit_chat(q) for q in is_chat)
+        fails += not ok
+        print("PASS" if ok else "FAIL", "chit-chat boundaries",
+              [q for q in not_chat if chit_chat(q)], [q for q in is_chat if not chit_chat(q)])
+        r = s.ask("hi", mode="business")
+        ok = "documents" in r["answer"]
+        r = s.ask("hi", mode="general")
+        ok = ok and "documents" not in r["answer"]
+        fails += not ok
+        print("PASS" if ok else "FAIL", "mode-aware greeting", r["answer"])
         print(f"{fails} failures")
         return fails
     finally:
