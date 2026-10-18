@@ -221,6 +221,24 @@ def general_question(question):
     return not OWN_RECORDS.search(question)
 
 
+def branch_ternary(score, chosen):
+    """The creator's ternary value for a branch: +1 follow now, 0 maybe (only with leftover budget),
+    -1 prune (never visited)."""
+    if chosen:
+        return 1
+    return 0 if score >= BACKTRACK_FLOOR else -1
+
+
+def doc_ternary(rel):
+    """Ternary value of a document read: +1 answers the question's words, 0 partly, -1 dead end."""
+    return 1 if rel >= 0.5 else 0 if rel > 0 else -1
+
+
+def route_value(trace):
+    """Sum of ternary values along a search: the reward signal the organiser learns from."""
+    return sum(sum(st.get("read", {}).values()) for st in trace)
+
+
 class Searcher:
     def __init__(self, lib, llm):
         self.lib, self.llm = lib, llm
@@ -256,15 +274,19 @@ class Searcher:
         return [(1 - KW_WEIGHT) * probs[l] + KW_WEIGHT * (k / kw_total) for l, k in zip(labels, kw)]
 
     def spend(self, question, q, path, kind, alloc, trace, found):
-        """Spend up to `alloc` on one child; return what is left. A read costs 1 (0.5 for a dead end)."""
+        """Spend up to `alloc` on one child; return what is left. A read costs 1, minus a refund by the
+        document's ternary value: +1 answers it (no refund), 0 partly (0.25 back), -1 dead end (0.5 back)."""
         if kind == "folder":
             return self.descend(question, q, path, alloc, trace, found)
         if alloc < 1:
             return alloc
         _, text = self.lib.read_doc(path)
         rel = overlap(q, text)
+        t = doc_ternary(rel)
         found.append((path, text, rel))
-        return alloc - (0.5 if rel == 0 else 1.0)
+        if trace:
+            trace[-1].setdefault("read", {})[path.rsplit("/", 1)[-1]] = t
+        return alloc - {1: 1.0, 0: 0.75, -1: 0.5}[t]
 
     def descend(self, question, q, folder, budget, trace, found):
         """Visit `folder` with `budget`; return the unspent budget (never negative, never more than given)."""
@@ -282,8 +304,10 @@ class Searcher:
         else:
             chosen = [i for i in order if scores[i] >= CUTOFF][:self.split] or order[:1]
         total = sum(scores[i] for i in chosen)
+        tern = {i: branch_ternary(scores[i], i in chosen) for i in order}
         step = {"index": folder or "Library",
                 "scores": {entries[i].name: round(scores[i], 3) for i in order},
+                "ternary": {entries[i].name: tern[i] for i in order},
                 "chosen": [entries[i].name for i in chosen]}
         trace.append(step)
 
@@ -301,7 +325,7 @@ class Searcher:
         for i in order:
             if pool < 1:
                 break
-            if i in visited or scores[i] < BACKTRACK_FLOOR:
+            if i in visited or tern[i] < 0:  # -1 = pruned: never visited, even with budget left
                 continue
             step["chosen"].append(entries[i].name)
             path = f"{folder}/{entries[i].name}".lstrip("/")
