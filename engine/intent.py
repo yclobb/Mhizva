@@ -22,6 +22,8 @@ INTENTS = {
     "list": "list or show the records that match",
     "chart": "a chart or graph of the business's numbers",
     "trend": "whether the business's numbers are rising, falling or changing over time",
+    "stats": "statistics or analysis of a series of numbers: averages, volatility, returns, drawdown, moving "
+             "averages, seasonality (sales, costs, stock prices)",
 }
 
 EXAMPLES = [

@@ -388,7 +388,7 @@ class Searcher:
                 return self.general(question, t0, [], business=mode != "general", advice=it == "advice") \
                     or self.friendly(question, t0)
         kind = {"total": "aggregate", "count": "aggregate", "list": "table", "chart": "chart",
-                "trend": "trend"}.get(it, "lookup")
+                "trend": "trend", "stats": "stats"}.get(it, "lookup")
         if mode == "data" and kind == "lookup":
             kind = "table"  # data mode never writes free text: a plain question lists the matching facts
         if mode == "data":

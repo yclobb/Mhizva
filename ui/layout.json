@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "modes": [
+    "general",
+    "data",
+    "business"
+  ],
+  "layout": {
+    "documents": "left sidebar; above the workspace on narrow screens",
+    "modes": "top of workspace",
+    "language": "workspace header",
+    "message": "bottom of workspace",
+    "sources": "under document-backed answers and in table cells/chart points",
+    "document_viewer": "dialog opened by a source",
+    "table_sort": "column headers of a result table",
+    "downloads": "above a result table",
+    "online": "not yet present in the UI"
+  },
+  "controls": {
+    "documents": {
+      "en": "Documents",
+      "zh": "文档"
+    },
+    "upload": {
+      "en": "Add files",
+      "zh": "添加文件"
+    },
+    "modes": {
+      "en": [
+        "General",
+        "Data",
+        "Business"
+      ],
+      "zh": [
+        "通用",
+        "数据",
+        "业务"
+      ]
+    },
+    "language": [
+      "English",
+      "中文"
+    ],
+    "downloads": [
+      "XLSX",
+      "CSV"
+    ]
+  },
+  "capabilities": {
+    "document_upload": true,
+    "source_viewer": true,
+    "typed_tables": true,
+    "bar_line_charts": true,
+    "spreadsheet_export": true,
+    "online_control": false
+  },
+  "notes": [
+    "Mode selection is explicit.",
+    "Visible conversation threads are separate per mode.",
+    "This manifest describes controls, not permission to access records."
+  ]
+}

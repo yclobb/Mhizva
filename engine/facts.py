@@ -189,6 +189,9 @@ OVER_TIME = r"\b(over time|by month|per month|monthly|trend|timeline)\b|按月|�
 
 def question_kind(question):
     q = question.lower()
+    if re.search(r"\b(stat|stats|statistics|statistical|analy[sz]e|analysis|volatility|volatile|moving averages?|"
+                 r"drawdown|returns|performance|summari[sz]e the (numbers|data))\b|统计|分析|波动|回撤", q):
+        return "stats"
     if re.search(r"\b(trends?|going (up|down)|increas\w*|decreas\w*|rising|falling|grow\w*|shrink\w*|"
                  r"changed?|changing|getting (more|less|worse|better)|over time)\b"
                  r"|趋势|走势|上涨|涨价|增加|增长|下降|下跌|减少|变化|越来越", q):
@@ -380,11 +383,14 @@ def group_field(rows, question):
 
 
 def money(v, currency="AUD"):
+    if currency == "":  # a plain measure (Close, Volume, Units): no currency symbol
+        return f"{v:,.4f}".rstrip("0").rstrip(".") if abs(v) < 1000 else f"{v:,.0f}"
     return f"{SYMBOL.get(currency, '$')}{v:,.2f}".replace(".00", "")
 
 
 def cur(r):
-    return r.get("currency") or "AUD"
+    c = r.get("currency")
+    return "AUD" if c is None else c
 
 
 MONTHS_CN = [f"{i}月" for i in range(1, 13)]
@@ -589,6 +595,17 @@ def answer(rows, question, kind):
         picked, excluded = one_currency(picked)
     note = T["zh" if zh else "en"]["also"].format(
         others=", ".join(f"{n} {k}" for k, n in excluded.items())) if excluded else ""
+    if kind == "stats":
+        from . import stats
+        dated = [r for r in picked if r["amount"] is not None and r["date"]] or \
+            [r for r in rows if r["amount"] is not None and r["date"]]
+        label, series = stats.pick_measure(dated, question)
+        unit = cur(series[0]) if series else ""
+        res = stats.analyse(dated, question, lambda v: money(v, unit))
+        if not res:
+            return None
+        text, table, chart = res
+        return text, table, chart, coverage(rows, series, picked.merged)
     if kind == "trend":
         res = trend(picked, question, zh)
         if not res:

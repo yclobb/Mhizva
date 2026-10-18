@@ -24,6 +24,7 @@ NOT_MONEY = re.compile(r"date|number|no\b|id\b|qty|quantity|rate|percent|%|count
 DATE_COL = re.compile(r"date|日期", re.I)
 PARTY_COLS = ["customer", "client", "debtor", "company", "vendor", "supplier", "creditor", "payee", "payer",
               "name", "客户", "供应商", "公司", "名称"]
+ID_COL = re.compile(r"^(index|row|#|no\.?)$|\bid\b|row.?id|number|year|postcode|zip|phone", re.I)
 REF_COL = re.compile(r"invoice.?(number|no|#|id)|^ref|reference|^id$|number|编号|单号", re.I)
 CURRENCY = [("USD", r"usd|us\$"), ("AUD", r"aud|a\$"), ("CNY", r"cny|rmb|¥|元|人民币"), ("EUR", r"eur|€"),
             ("GBP", r"gbp|£"), ("NZD", r"nzd")]
@@ -104,7 +105,10 @@ def roles(header, rows):
         if party is not None:
             break
     ref = next((i for i, h in enumerate(header) if REF_COL.search(h) and i not in money), None)
-    return {"money": money, "dates": dates, "party": party, "ref": ref}
+    # other numeric columns (Close, Volume, Units, Score) are measures: analysable, but not money
+    measures = [i for i, h in enumerate(header) if i not in money and i not in dates and i != ref and numeric(i)
+                and not ID_COL.search(h)]
+    return {"money": money, "dates": dates, "party": party, "ref": ref, "measures": measures}
 
 
 def to_number(v):
@@ -166,16 +170,17 @@ def facts_from_rows(path_of_row, title, header, rows, cls):
         m = REF.search(text)
         ref = cell(rl["ref"]) if rl["ref"] is not None else (m.group(0) if m else None)
         fields = {nice(h): cell(i) for i, h in enumerate(header) if cell(i)}
-        for i in rl["money"]:
+        for i in rl["money"] + rl["measures"]:
             v = to_number(cell(i))
             if v is None:
                 continue
             out.append({"doc": path_of_row(n), "record": f"{path_of_row(n)}#{n}", "row": n, "title": title,
                         "party": party, "kind": cls["kind"], "label": nice(header[i]), "amount": v,
-                        "currency": currency_of(header[i], default_cur), "date": dates[0] if dates else None,
+                        "currency": currency_of(header[i], default_cur) if i in rl["money"] else "",
+                        "date": dates[0] if dates else None,
                         "date_from": "row" if dates else None, "text": text[:1000], "ref": ref,
                         "direction": cls.get("direction"), "fields": fields})
-        if not rl["money"] and dates:
+        if not rl["money"] and not rl["measures"] and dates:
             out.append({"doc": path_of_row(n), "record": f"{path_of_row(n)}#{n}", "row": n, "title": title,
                         "party": party, "kind": cls["kind"], "label": nice(header[rl["dates"][0]]), "amount": None,
                         "currency": None, "date": dates[0], "text": text[:1000], "ref": ref,

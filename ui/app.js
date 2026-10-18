@@ -24,6 +24,25 @@ function updateWelcome() {
   $('mode-note').textContent=t(modeKey(state.mode,'Note'));
   $('question').placeholder=t(modeKey(state.mode,'Placeholder'));
 }
+function uiContext() {
+  const thread=getThread(state.mode),narrow=window.matchMedia('(max-width: 600px)').matches;
+  const control=(key,label,region,present,visible=present)=>({key,label,region,present:Boolean(present),visible:Boolean(visible)});
+  return {
+    version:1,language:window.MhizvaI18n.language,mode:state.mode,
+    controls:[
+      control('documents',t('library'),narrow?'above_workspace':'left_sidebar',$('tree')),
+      control('upload',t('addDocuments'),narrow?'above_workspace':'left_sidebar',$('drop-zone')),
+      control('modes',[t('modeGeneral'),t('modeData'),t('modeBusiness')].join(' / '),'top_of_workspace',$('mode-controls')),
+      control('language','English / 中文','workspace_header',$('language')),
+      control('message',t('questionLabel'),'bottom_of_workspace',$('ask-form')),
+      control('sources',t('source'),'under_answers_and_result_values',true,thread.querySelector('.source,.source-cell,.chart-point[role="button"]')),
+      control('table_sort',t('table'),'result_table_headers',true,thread.querySelector('.sort-button')),
+      control('downloads','XLSX / CSV','above_result_table',true,thread.querySelector('.result-downloads')),
+      control('source_viewer',t('document'),'dialog',true,$('document-dialog').open),
+      control('online','Online','workspace_header',document.getElementById('online-toggle'))
+    ]
+  };
+}
 function getThread(mode) {
   let thread=document.querySelector('[data-thread="'+mode+'"]');
   if(!thread){thread=make('div','mode-thread');thread.dataset.thread=mode;thread.hidden=mode!==state.mode;$('messages').append(thread);}
@@ -104,7 +123,7 @@ $('ask-form').addEventListener('submit',async event=>{
   message('user',question); $('question').value=''; $('question').style.height='auto';
   const pending=message('assistant',t('thinking'),'thinking');
   try {
-    const requestBody={question,mode:requestedMode};
+    const requestBody={question,mode:requestedMode,ui_context:uiContext()};
     if(requestedMode==='general')requestBody.history=generalTurns.slice(-8).map(turn=>({role:turn.role,content:turn.content}));
     const result=await api('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(requestBody)});
     if(!result.mode)result.mode=requestedMode;
