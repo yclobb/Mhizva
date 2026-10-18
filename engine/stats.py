@@ -27,7 +27,9 @@ def pick_measure(rows, question):
     if not labels:
         return None, []
     asked = set(words(question))
-    best = max(labels, key=lambda l: (len(asked & set(words(l))), len(labels[l])))
+    # no column named in the question: the conventional headline measure first (closing price, total, amount)
+    usual = lambda l: bool(re.search(r"\b(adj\w* close|close|price|total|amount|value|revenue|sales)\b", l, re.I))
+    best = max(labels, key=lambda l: (len(asked & set(words(l))), usual(l), len(labels[l])))
     return best, labels[best]
 
 

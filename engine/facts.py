@@ -384,7 +384,7 @@ def group_field(rows, question):
 
 def money(v, currency="AUD"):
     if currency == "":  # a plain measure (Close, Volume, Units): no currency symbol
-        return f"{v:,.4f}".rstrip("0").rstrip(".") if abs(v) < 1000 else f"{v:,.0f}"
+        return f"{v:,.2f}".rstrip("0").rstrip(".") if abs(v) < 1000 else f"{v:,.0f}"
     return f"{SYMBOL.get(currency, '$')}{v:,.2f}".replace(".00", "")
 
 
