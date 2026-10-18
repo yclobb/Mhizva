@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const t = (...args) => window.MhizvaI18n.t(...args);
 const completedAnswers = [];
+const typeFolderLabels = new Map(['Invoices','Quotes','Bills','Receipts','Contracts','Insurance','Policies','Reports','Other'].map(name=>[name,'folder'+name]));
 const state = {ready:false, asking:false, uploading:false, docRequest:0, docCount:0};
 const make = (tag, className, text) => { const el=document.createElement(tag); if(className) el.className=className; if(text!==undefined) el.textContent=text; return el; };
 async function api(url, options={}) {
@@ -39,7 +40,8 @@ async function refreshStatus() {
 function treeNode(node) {
   if(node.kind==='folder') {
     const details=make('details'); details.open=true;
-    const summary=make('summary'); summary.append(make('span','','▱'),make('span','',node.name || t('documents'))); summary.title=(node.summary || '').replace(/\s+/g,' ');
+    const folderName=typeFolderLabels.has(node.path)?t(typeFolderLabels.get(node.path)):(node.name || t('documents'));
+    const summary=make('summary'); summary.append(make('span','','▱'),make('span','',folderName)); summary.title=(node.summary || '').replace(/\s+/g,' ');
     const children=make('div','children'); for(const child of node.children || []) children.append(treeNode(child));
     details.append(summary,children); return details;
   }
